@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
-import { d, MARKUP_PADRAO_PCT, precoVendaSugerido } from '@sistema/motor-calculo';
+import { d, MARKUP_PADRAO_PCT, precoVendaSugerido, STATUS_DISPONIBILIDADE } from '@sistema/motor-calculo';
 import {
   categoriasProduto, fornecedores, historicoPrecosProduto, precosBarraTrilho, produtos, usuarios,
 } from '../db/schema.js';
@@ -46,11 +46,22 @@ const corpoProduto = z.object({
   fornecedorPadraoId: z.uuid().nullish().transform((v) => v ?? null),
   metadataTecnica: z.record(z.string(), z.unknown()).default({}),
   motivo: textoOpcional(200),
+  /** Disponibilidade (Gabriel, 27/11/2026). Previsão obrigatória em "em falta com previsão". */
+  disponibilidade: z.enum(STATUS_DISPONIBILIDADE, 'Status de disponibilidade inválido').default('DISPONIVEL'),
+  previsaoDisponivel: z.iso.date('Previsão: data inválida').nullish().transform((v) => v ?? null),
 });
 // Sem `.default` aqui: no zod 4 o default vale até dentro de `.partial()` e apagaria o metadata.
 const corpoEditarProduto = corpoProduto.omit({ motivo: true })
-  .extend({ metadataTecnica: z.record(z.string(), z.unknown()), ativo: z.boolean() }).partial()
+  .extend({ metadataTecnica: z.record(z.string(), z.unknown()), ativo: z.boolean(), disponibilidade: z.enum(STATUS_DISPONIBILIDADE, 'Status de disponibilidade inválido') }).partial()
   .extend({ motivo: textoOpcional(200) });
+
+/** Erro se o status pede previsão e ela não veio (ou o contrário: limpa a previsão). */
+function ajustarPrevisao<T extends { disponibilidade?: string; previsaoDisponivel?: string | null }>(dados: T): string | null {
+  if (dados.disponibilidade === undefined) return null;
+  if (dados.disponibilidade === 'EM_FALTA_COM_PREVISAO') return dados.previsaoDisponivel ? null : 'Em falta com previsão: informe a data da previsão.';
+  dados.previsaoDisponivel = null;
+  return null;
+}
 
 const corpoBarras = z.object({
   barras: z.array(z.object({
@@ -136,6 +147,7 @@ export async function rotasCatalogo(app: FastifyInstance) {
     precoVendaUnitario: produtos.precoVendaUnitario, metadata: produtos.metadataTecnica,
     fornecedorPadraoId: produtos.fornecedorPadraoId, fornecedorNome: fornecedores.nomeFantasia,
     ativo: produtos.ativo, atualizadoEm: produtos.atualizadoEm,
+    disponibilidade: produtos.disponibilidade, previsaoDisponivel: produtos.previsaoDisponivel,
   };
 
   function produtoPublico(req: FastifyRequest, p: Record<string, unknown>, barras: { tamanhoM: number; custo: string; venda: string }[]) {
@@ -308,6 +320,8 @@ export async function rotasCatalogo(app: FastifyInstance) {
     const { motivo, precoVendaUnitario, ...dados } = corpo.data;
     const erroRef = await validarRefs(req.usuario!.lojaId, dados.categoriaId, dados.fornecedorPadraoId);
     if (erroRef) return res.code(400).send({ erro: erroRef });
+    const erroPrev = ajustarPrevisao(dados);
+    if (erroPrev) return res.code(400).send({ erro: erroPrev });
     const [existe] = await app.db.select({ id: produtos.id }).from(produtos).where(eq(produtos.sku, dados.sku));
     if (existe) return res.code(409).send({ erro: `Já existe produto com o SKU ${dados.sku}.` });
     const venda = precoVendaUnitario ?? precoVendaSugerido(dados.custoUnitario, markupDe(await categorias(req.usuario!.lojaId), dados.categoriaId)).toFixed(4);
@@ -329,6 +343,8 @@ export async function rotasCatalogo(app: FastifyInstance) {
     const { motivo, ...dados } = corpo.data;
     const erroRef = await validarRefs(req.usuario!.lojaId, dados.categoriaId, dados.fornecedorPadraoId);
     if (erroRef) return res.code(400).send({ erro: erroRef });
+    const erroPrev = ajustarPrevisao(dados);
+    if (erroPrev) return res.code(400).send({ erro: erroPrev });
     if (dados.sku) {
       const [outro] = await app.db.select({ id: produtos.id }).from(produtos)
         .where(and(eq(produtos.sku, dados.sku), sql`${produtos.id} <> ${req.params.id}`));

@@ -10,7 +10,7 @@ import { Campo, classeSelect, classeTextarea, Mensagens } from '@/components/cad
 import { api } from '@/lib/cliente';
 import { dinheiro } from '@/lib/utils';
 import { formatarData } from '@/lib/texto';
-import { metadataDosCampos, modeloCadastro, type CampoTecnico } from '@sistema/motor-calculo/navegador';
+import { metadataDosCampos, modeloCadastro, ROTULO_DISPONIBILIDADE, STATUS_DISPONIBILIDADE, type CampoTecnico } from '@sistema/motor-calculo/navegador';
 
 export type Categoria = {
   id: number; nome: string; paiId: number | null; caminho: string; perfil: string; nivel: number;
@@ -20,6 +20,7 @@ type Produto = {
   id: string; sku: string; nome: string; corColecao: string | null; categoriaId: number; unidade: string;
   custoUnitario: string; precoVendaUnitario: string; metadata: Record<string, unknown>; fornecedorPadraoId: string | null;
   ativo: boolean | null; barras: { tamanhoM: number; custo: string; venda: string }[]; tabelaBarrasCompleta: boolean;
+  disponibilidade: string; previsaoDisponivel: string | null;
 };
 type Historico = {
   id: string; tamanhoM: number | null; custoAnterior: string | null; custoNovo: string | null; vendaAnterior: string | null;
@@ -76,6 +77,8 @@ export function EditorProduto({ id }: { id: string | null }) {
   const [unidade, setUnidade] = useState('');
   const [valores, setValores] = useState<Valores>({});
   const [extras, setExtras] = useState('');
+  const [disponibilidade, setDisponibilidade] = useState('DISPONIVEL');
+  const [previsao, setPrevisao] = useState('');
   const [custo, setCusto] = useState('');
   const [venda, setVenda] = useState('');
   const [erro, setErro] = useState<string | null>(null);
@@ -91,6 +94,7 @@ export function EditorProduto({ id }: { id: string | null }) {
     api<{ produto: Produto; historico: Historico[] }>(`/api/catalogo/produtos/${id}`).then((r) => {
       setProduto(r.produto); setHistorico(r.historico ?? []);
       setCusto(paraCampo(r.produto.custoUnitario)); setVenda(paraCampo(r.produto.precoVendaUnitario)); setUnidade(r.produto.unidade);
+      setDisponibilidade(r.produto.disponibilidade ?? 'DISPONIVEL'); setPrevisao(r.produto.previsaoDisponivel ?? '');
     }).catch((e) => setErro((e as Error).message));
   }, [id, versao]);
   // Com produto e categorias carregados: monta o caminho e separa os dados técnicos.
@@ -140,6 +144,7 @@ export function EditorProduto({ id }: { id: string | null }) {
       sku: f.get('sku'), nome: f.get('nome'), corColecao: f.get('corColecao'), categoriaId: final.id,
       unidadeMedida: unidade || modelo.unidadePadrao, custoUnitario: custo, precoVendaUnitario: venda || null,
       fornecedorPadraoId: f.get('fornecedorPadraoId') || null, metadataTecnica, motivo: f.get('motivo') || null,
+      disponibilidade, previsaoDisponivel: disponibilidade === 'EM_FALTA_COM_PREVISAO' ? previsao || null : null,
     };
     try {
       if (id) {
@@ -214,6 +219,16 @@ export function EditorProduto({ id }: { id: string | null }) {
                 {fornecedores.map((f) => <option key={f.id} value={f.id}>{f.nomeFantasia}</option>)}
               </select>
             </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="disponibilidade">Status</Label>
+              <select id="disponibilidade" value={disponibilidade} onChange={(e) => setDisponibilidade(e.target.value)} className={classeSelect}>
+                {STATUS_DISPONIBILIDADE.map((s) => <option key={s} value={s}>{ROTULO_DISPONIBILIDADE[s]}</option>)}
+              </select>
+              <span className="text-xs text-muted-foreground">Só o vendedor vê. Fora de linha não pode ser enviado ao cliente; sob consulta só o administrador envia.</span>
+            </div>
+            {disponibilidade === 'EM_FALTA_COM_PREVISAO' ? (
+              <Campo rotulo="Previsão de chegada *" nome="previsao" type="date" required value={previsao} onChange={(e) => setPrevisao(e.target.value)} />
+            ) : <div className="hidden sm:block" />}
             <Campo rotulo="Custo unitário (R$) *" nome="custo" required inputMode="decimal" value={custo} onChange={(e) => setCusto(e.target.value)} placeholder="0,00" />
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="venda">Venda unitária (R$)</Label>

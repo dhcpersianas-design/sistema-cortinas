@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { classeSelect } from '@/components/cadastro/campos';
-import { regrasDoModelo } from '@sistema/motor-calculo/navegador';
+import { regrasDoModelo, textoDisponibilidade } from '@sistema/motor-calculo/navegador';
 import type { Item, ProdutoCatalogo } from '@/lib/orcamentos-offline';
 
 /**
@@ -58,7 +58,10 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
 
   const porCategoria = useMemo(() => {
     // Pelo tipo da categoria (perfil); cache antigo sem perfil cai no nome da categoria.
-    const m = (perfil: string, re: RegExp) => produtos.filter((p) => (p.perfil ? p.perfil === perfil : re.test(p.categoria)));
+    // Fora de linha some da lista, a não ser que já esteja escolhido neste item (aí aparece com o aviso).
+    const atuais = new Set([e.sku, e.tecido?.sku, e.forro?.sku, ...Object.values(e.skus ?? {})].filter(Boolean) as string[]);
+    const m = (perfil: string, re: RegExp) => produtos.filter((p) => (p.perfil ? p.perfil === perfil : re.test(p.categoria))
+      && (p.disponibilidade !== 'FORA_DE_LINHA' || atuais.has(p.sku)));
     return {
       tecidos: m('TECIDO', /^tecido/i).filter((p) => !p.metadata?.eh_forro),
       forros: m('TECIDO', /^tecido/i).filter((p) => Boolean(p.metadata?.eh_forro)),
@@ -75,7 +78,10 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
     const ou = (v: string | undefined, lista: ProdutoCatalogo[]) => v || lista[0]?.sku;
     return regrasDoModelo(tipo === 'PERSIANA'
       ? { tipo, persiana: ou(escolha.persiana, porCategoria.persianas), acionamento: escolha.acionamento }
-      : { tipo, confeccao, tecido: ou(escolha.tecido, porCategoria.tecidos), forro: escolha.forro || undefined, trilho: ou(escolha.trilho, porCategoria.trilhos) }, obter);
+      : { tipo, confeccao, tecido: ou(escolha.tecido, porCategoria.tecidos), forro: escolha.forro || undefined, trilho: ou(escolha.trilho, porCategoria.trilhos) }, obter)
+      .concat(disponibilidadeEscolhida(tipo === 'PERSIANA'
+        ? [ou(escolha.persiana, porCategoria.persianas)]
+        : [ou(escolha.tecido, porCategoria.tecidos), escolha.forro, ou(escolha.trilho, porCategoria.trilhos)], obter));
   }, [tipo, confeccao, escolha, produtos, porCategoria]);
 
   function salvar(ev: React.FormEvent<HTMLFormElement>) {
@@ -185,21 +191,21 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
             </select>
           </div>
           <Selecao nome="numFolhas" rotulo="Folhas" valor={String(e.numFolhas ?? 2)} opcoes={[['2', '2 folhas'], ['1', '1 folha']]} />
-          <Selecao nome="tecido" rotulo="Tecido" valor={e.tecido?.sku} opcoes={porCategoria.tecidos.map((p) => [p.sku, `${p.nome} (${p.sku})`])} />
+          <Selecao nome="tecido" rotulo="Tecido" valor={e.tecido?.sku} opcoes={porCategoria.tecidos.map((p) => [p.sku, `${p.nome} (${p.sku})${sufixoStatus(p)}`])} />
           <CampoTexto nome="fator" rotulo="Fator de franzimento" valor={e.tecido?.fator ? String(e.tecido.fator).replace('.', ',') : ''}
             dica={`Em branco: ${{ WAVE: '2,8', PREGA: '3,0', FRANZIDO: '2,5' }[confeccao] ?? ''} (padrão da loja)`} />
-          <Selecao nome="forro" rotulo="Forro" valor={e.forro?.sku ?? ''} opcoes={[['', 'Sem forro'], ...porCategoria.forros.map((p) => [p.sku, `${p.nome} (${p.sku})`] as [string, string])]} />
+          <Selecao nome="forro" rotulo="Forro" valor={e.forro?.sku ?? ''} opcoes={[['', 'Sem forro'], ...porCategoria.forros.map((p) => [p.sku, `${p.nome} (${p.sku})${sufixoStatus(p)}`] as [string, string])]} />
           <CampoTexto nome="fatorForro" rotulo="Fator do forro" valor={e.forro?.fator ? String(e.forro.fator).replace('.', ',') : ''} dica="Em branco: 1,8 (padrão da loja)" />
           {porCategoria.maoObra.length > 0 && (
             <Selecao key={`mdo-${confeccao}`} nome="maoObra" rotulo="Mão de obra da confecção" largo
               valor={e.skus?.maoObraTecido && e.confeccao === confeccao ? e.skus.maoObraTecido : (confeccao === 'WAVE' ? 'MDO-001' : porCategoria.maoObra.find((p) => /prega/i.test(p.nome))?.sku)}
-              opcoes={porCategoria.maoObra.map((p) => [p.sku, `${p.nome} (${p.sku})`])} />
+              opcoes={porCategoria.maoObra.map((p) => [p.sku, `${p.nome} (${p.sku})${sufixoStatus(p)}`])} />
           )}
-          <Selecao nome="trilho" rotulo="Trilho / varão" valor={e.skus?.trilho} opcoes={porCategoria.trilhos.map((p) => [p.sku, `${p.nome} (${p.sku})${p.tabelaBarrasCompleta ? ' · por barra' : ''}`])} largo />
+          <Selecao nome="trilho" rotulo="Trilho / varão" valor={e.skus?.trilho} opcoes={porCategoria.trilhos.map((p) => [p.sku, `${p.nome} (${p.sku})${p.tabelaBarrasCompleta ? ' · por barra' : ''}${sufixoStatus(p)}`])} largo />
         </>
       ) : (
         <>
-          <Selecao nome="persiana" rotulo="Persiana" valor={e.sku} opcoes={porCategoria.persianas.map((p) => [p.sku, `${p.nome} (${p.sku})`])} largo />
+          <Selecao nome="persiana" rotulo="Persiana" valor={e.sku} opcoes={porCategoria.persianas.map((p) => [p.sku, `${p.nome} (${p.sku})${sufixoStatus(p)}`])} largo />
           <Selecao nome="modoMedida" rotulo="A medida é" valor={e.medida?.tipo === 'VAO_BRUTO' ? e.medida.modo : 'PRODUCAO'} largo
             opcoes={[['PRODUCAO', 'Medida final da persiana'], ['DENTRO_VAO', 'Vão bruto, instalação dentro do vão'], ['FORA_VAO', 'Vão bruto, instalação fora do vão'], ['TETO', 'Vão bruto, instalação no teto']]} />
           <CampoMedida nome="largura" rotulo={`Largura (${medidaRotulo})`} valor={deMetros(Array.isArray(e.medida?.largura) ? e.medida.largura[0] : e.medida?.largura, unidade)} key={`pl${unidade}`} />
@@ -255,6 +261,26 @@ function CampoTexto({ nome, rotulo, valor, dica }: { nome: string; rotulo: strin
       {dica && <span className="text-xs text-muted-foreground">{dica}</span>}
     </div>
   );
+}
+
+/** " · EM FALTA, previsão 10/12/2026" na lista de escolha (só o vendedor vê). */
+function sufixoStatus(p: ProdutoCatalogo): string {
+  if (!p.disponibilidade || p.disponibilidade === 'DISPONIVEL') return '';
+  return ` · ${textoDisponibilidade(p.disponibilidade, p.previsaoDisponivel).toUpperCase()}`;
+}
+
+/** Linhas do quadro de atenção para produto escolhido que não está disponível. */
+function disponibilidadeEscolhida(skus: (string | undefined)[], obter: (sku: string) => ProdutoCatalogo | undefined) {
+  const r: { titulo: string; texto: string }[] = [];
+  for (const sku of skus) {
+    const p = sku ? obter(sku) : undefined;
+    if (!p || !p.disponibilidade || p.disponibilidade === 'DISPONIVEL') continue;
+    const extra = p.disponibilidade === 'FORA_DE_LINHA' ? ' Troque o produto: o orçamento não pode ser enviado com ele.'
+      : p.disponibilidade === 'SOB_CONSULTA' ? ' Preço não é automático: confirme com o fornecedor; só o administrador envia.'
+      : ' Confirme o prazo com o fornecedor.';
+    r.push({ titulo: p.nome, texto: `${textoDisponibilidade(p.disponibilidade, p.previsaoDisponivel)}.${extra}` });
+  }
+  return r;
 }
 
 function Selecao({ nome, rotulo, valor, opcoes, largo }: { nome: string; rotulo: string; valor?: string; opcoes: [string, string][]; largo?: boolean }) {

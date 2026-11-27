@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { d, MARKUP_PADRAO_PCT, PRODUTOS_SEED, precoVendaSugerido } from '@sistema/motor-calculo';
+import { d, dataBr, MARKUP_PADRAO_PCT, ROTULO_DISPONIBILIDADE, PRODUTOS_SEED, precoVendaSugerido, textoDisponibilidade, type StatusDisponibilidade } from '@sistema/motor-calculo';
 import type { Banco } from '../db/conexao.js';
 import { historicoPrecosProduto, precosBarraTrilho, produtos } from '../db/schema.js';
 import { parametro } from './parametros.js';
@@ -11,7 +11,9 @@ import {
 /**
  * Importação da tabela de preços por planilha (Excel .xlsx ou CSV), só ADMIN.
  *
- * - Aba "Produtos": SKU, Nome, Categoria, Unidade, Cor/Coleção, Custo, Venda.
+ * - Aba "Produtos": SKU, Nome, Categoria, Unidade, Cor/Coleção, Custo, Venda, Status, Previsão.
+ *   Status = disponibilidade (Disponível, Em falta, Fora de linha, Sob consulta); Previsão = data
+ *   de chegada quando está em falta (dd/mm/aaaa). Previsão preenchida = "Em falta com previsão".
  *   SKU que já existe = atualiza só as colunas preenchidas; SKU novo = cria.
  * - Aba "Barras de trilho": SKU, Tamanho (m), Custo, Venda (tabela por barra, 1 a 6 m).
  * - Nada é apagado: célula vazia mantém o valor atual; produto não listado fica como está.
@@ -40,11 +42,13 @@ export const SKUS_FIXOS = PRODUTOS_SEED.filter((p) => PREFIXO_CATEGORIA[p.sku.sl
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   .replace(/\(r\$\)|r\$|\(m\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
 
-type Campo = 'sku' | 'nome' | 'categoria' | 'unidade' | 'cor' | 'custo' | 'venda' | 'tamanho';
+type Campo = 'sku' | 'nome' | 'categoria' | 'unidade' | 'cor' | 'custo' | 'venda' | 'tamanho' | 'status' | 'previsao';
 
 function campoDoCabecalho(t: string): Campo | null {
   const n = norm(t);
   if (!n) return null;
+  if (n.startsWith('previsao')) return 'previsao';
+  if (n.startsWith('status') || n.startsWith('disponibilidade') || n.startsWith('situacao')) return 'status';
   if (n.includes('sku') || n === 'codigo' || n === 'cod' || n === 'codigo do produto') return 'sku';
   if (n.includes('tamanho') || n.startsWith('barra') || n === 'metros') return 'tamanho';
   if (n.includes('custo')) return 'custo';
@@ -69,9 +73,9 @@ function lerTabela(aba: string, linhas: Celula[][], destino: Lido) {
       const f = c.texto.length <= 40 ? campoDoCabecalho(c.texto) : null;
       if (f && ![...mapa.values()].includes(f)) mapa.set(j, f);
     });
-    // Cabeçalho = SKU + pelo menos um preço (evita confundir com um texto de instruções).
+    // Cabeçalho = SKU + pelo menos um preço ou status (evita confundir com um texto de instruções).
     const campos = [...mapa.values()];
-    if (!campos.includes('sku') || !(campos.includes('custo') || campos.includes('venda'))) continue;
+    if (!campos.includes('sku') || !(campos.includes('custo') || campos.includes('venda') || campos.includes('status'))) continue;
     const ehBarra = [...mapa.values()].includes('tamanho');
     for (let k = i + 1; k < linhas.length; k++) {
       const l = linhas[k] ?? [];
@@ -131,6 +135,40 @@ function lerUnidade(t: string): Unidade | null {
   return null;
 }
 
+/** "Em falta" / "Fora de linha" / "Sob consulta"... → código. `temPrevisao` decide o "em falta". */
+export function lerStatus(t: string, temPrevisao: boolean): StatusDisponibilidade | null {
+  const n = norm(t).replace(/ /g, '_').toUpperCase();
+  const codigos = ['DISPONIVEL', 'EM_FALTA_SEM_PREVISAO', 'EM_FALTA_COM_PREVISAO', 'FORA_DE_LINHA', 'SOB_CONSULTA'];
+  if (codigos.includes(n)) return n as StatusDisponibilidade;
+  const m = norm(t);
+  if (/^(disponivel|ok|sim|normal|em estoque)$/.test(m)) return 'DISPONIVEL';
+  if (m.includes('fora')) return 'FORA_DE_LINHA';
+  if (m.includes('consulta')) return 'SOB_CONSULTA';
+  if (m.includes('falta') || m.includes('sem estoque')) {
+    if (m.includes('sem previsao')) return 'EM_FALTA_SEM_PREVISAO';
+    return temPrevisao || m.includes('com previsao') ? 'EM_FALTA_COM_PREVISAO' : 'EM_FALTA_SEM_PREVISAO';
+  }
+  return null;
+}
+
+/** Data da previsão: dd/mm/aaaa, dd/mm/aa, aaaa-mm-dd ou data do Excel. Devolve "AAAA-MM-DD". */
+export function lerData(c: Celula): string | null {
+  const t = c.texto.trim();
+  let a: number, m: number, dd: number;
+  if (c.numero && /^\d{5}(\.\d+)?$/.test(t)) {
+    const dt = new Date(Date.UTC(1899, 11, 30) + Math.floor(Number(t)) * 86_400_000);
+    [a, m, dd] = [dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate()];
+  } else {
+    let r = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})$/.exec(t);
+    if (r) { [dd, m, a] = [Number(r[1]), Number(r[2]), Number(r[3])]; if (a < 100) a += 2000; }
+    else if ((r = /^(\d{4})-(\d{2})-(\d{2})/.exec(t))) { [a, m, dd] = [Number(r[1]), Number(r[2]), Number(r[3])]; }
+    else return null;
+  }
+  const dt = new Date(Date.UTC(a, m - 1, dd));
+  if (dt.getUTCFullYear() !== a || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== dd || a < 2000 || a > 2100) return null;
+  return `${a}-${String(m).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+}
+
 function lerTamanho(c: Celula): number | null {
   const t = c.texto.trim().toLowerCase().replace(/\s*(m|metros?)$/, '').replace(',', '.');
   const n = Number(t);
@@ -155,7 +193,10 @@ export type ItemPrevia = {
 export type ResumoPrevia = { criar: number; atualizar: number; semMudanca: number; ignoradas: number; erros: number };
 export type Previa = { arquivo: string; itens: ItemPrevia[]; resumo: ResumoPrevia; markupPct: string; markupPorCategoria: boolean };
 
-type DadosProduto = { nome: string; categoriaId: number; unidadeMedida: Unidade; corColecao: string | null; custoUnitario: string; precoVendaUnitario: string };
+type DadosProduto = {
+  nome: string; categoriaId: number; unidadeMedida: Unidade; corColecao: string | null; custoUnitario: string; precoVendaUnitario: string;
+  disponibilidade: StatusDisponibilidade; previsaoDisponivel: string | null;
+};
 type Operacao =
   | { tipo: 'CRIAR_PRODUTO'; sku: string; dados: DadosProduto; metadata: Record<string, unknown> }
   | { tipo: 'ATUALIZAR_PRODUTO'; produtoId: string; antes: Partial<DadosProduto>; depois: Partial<DadosProduto> }
@@ -165,6 +206,7 @@ type ProdutoAtual = typeof produtos.$inferSelect;
 
 const ROTULO: Record<keyof DadosProduto, string> = {
   nome: 'Nome', categoriaId: 'Categoria', unidadeMedida: 'Unidade', corColecao: 'Cor/Coleção', custoUnitario: 'Custo', precoVendaUnitario: 'Venda',
+  disponibilidade: 'Status', previsaoDisponivel: 'Previsão',
 };
 
 export async function analisar(db: Exec, lojaId: string, arquivo: string, lido: Lido, travar = false): Promise<{ previa: Previa; operacoes: Operacao[] }> {
@@ -232,6 +274,23 @@ export async function analisar(db: Exec, lojaId: string, arquivo: string, lido: 
       if (l.cor.texto.length > 80) it.erros.push('Cor/Coleção com mais de 80 caracteres.');
       else novo.corColecao = l.cor.texto;
     }
+    if (l.previsao) {
+      const dt = lerData(l.previsao);
+      if (!dt) it.erros.push(`Previsão "${l.previsao.texto}" inválida: use dd/mm/aaaa.`);
+      else novo.previsaoDisponivel = dt;
+    }
+    if (l.status) {
+      const st = lerStatus(l.status.texto, novo.previsaoDisponivel != null);
+      if (!st) it.erros.push(`Status "${l.status.texto}" inválido. Use: Disponível, Em falta, Fora de linha ou Sob consulta.`);
+      else novo.disponibilidade = st;
+    } else if (novo.previsaoDisponivel) {
+      novo.disponibilidade = 'EM_FALTA_COM_PREVISAO';
+    }
+    if (novo.disponibilidade === 'EM_FALTA_COM_PREVISAO' && !novo.previsaoDisponivel) it.erros.push('Em falta com previsão: preencha a Previsão (dd/mm/aaaa).');
+    if (novo.disponibilidade && novo.disponibilidade !== 'EM_FALTA_COM_PREVISAO') {
+      if (novo.previsaoDisponivel && l.status) it.avisos.push('Previsão ignorada: só vale para "Em falta com previsão".');
+      novo.previsaoDisponivel = null;
+    }
     for (const [campo, chave] of [['custo', 'custoUnitario'], ['venda', 'precoVendaUnitario']] as const) {
       const c = l[campo];
       if (!c) continue;
@@ -256,6 +315,8 @@ export async function analisar(db: Exec, lojaId: string, arquivo: string, lido: 
         corColecao: novo.corColecao ?? null,
         custoUnitario: novo.custoUnitario,
         precoVendaUnitario: novo.precoVendaUnitario,
+        disponibilidade: novo.disponibilidade ?? 'DISPONIVEL',
+        previsaoDisponivel: novo.previsaoDisponivel ?? null,
       };
       if (!dados.nome) it.erros.push('Produto novo: preencha o Nome.');
       if (!dados.categoriaId || !nomeCategoria.has(dados.categoriaId)) it.erros.push('Produto novo: preencha a Categoria.');
@@ -287,6 +348,7 @@ export async function analisar(db: Exec, lojaId: string, arquivo: string, lido: 
     const valorAtual: DadosProduto = {
       nome: atual.nome, categoriaId: atual.categoriaId, unidadeMedida: atual.unidadeMedida as Unidade, corColecao: atual.corColecao,
       custoUnitario: atual.custoUnitario, precoVendaUnitario: atual.precoVendaUnitario,
+      disponibilidade: atual.disponibilidade as StatusDisponibilidade, previsaoDisponivel: atual.previsaoDisponivel ?? null,
     };
     for (const k of Object.keys(novo) as (keyof DadosProduto)[]) {
       const a = valorAtual[k];
@@ -296,7 +358,10 @@ export async function analisar(db: Exec, lojaId: string, arquivo: string, lido: 
       (antes as Record<string, unknown>)[k] = a;
       (depois as Record<string, unknown>)[k] = n;
       const fmt = (v: unknown) => (k === 'custoUnitario' || k === 'precoVendaUnitario' ? brl(v as string)
-        : k === 'categoriaId' ? nomeCategoria.get(v as number) ?? String(v) : v == null || v === '' ? '(vazio)' : String(v));
+        : k === 'categoriaId' ? nomeCategoria.get(v as number) ?? String(v)
+        : k === 'disponibilidade' ? ROTULO_DISPONIBILIDADE[v as StatusDisponibilidade] ?? String(v)
+        : k === 'previsaoDisponivel' ? (v ? dataBr(v as string) : '(vazio)')
+        : v == null || v === '' ? '(vazio)' : String(v));
       it.mudancas.push(`${ROTULO[k]}: ${fmt(a)} → ${fmt(n)}`);
     }
     if (depois.categoriaId !== undefined && !ehFinal(depois.categoriaId)) {
@@ -548,9 +613,13 @@ export async function planilhaPrecos(db: Banco, lojaId: string): Promise<Buffer>
   const existentes = new Set((await db.select({ sku: produtos.sku }).from(produtos)).map((p) => p.sku));
   const faltando = SKUS_FIXOS.filter((p) => !existentes.has(p.sku));
 
-  const linhasProdutos: (string | number | null)[][] = [['SKU', 'Nome', 'Categoria', 'Unidade', 'Cor/Coleção', 'Custo', 'Venda']];
-  for (const p of lista) linhasProdutos.push([p.sku, p.nome, nomeCat.get(p.categoriaId) ?? '', p.unidadeMedida, p.corColecao, num(p.custoUnitario), num(p.precoVendaUnitario)]);
-  for (const p of faltando) linhasProdutos.push([p.sku, p.nome, nomeCat.get(PREFIXO_CATEGORIA[p.sku.slice(0, 3)]!) ?? '', p.unidade, null, null, null]);
+  const linhasProdutos: (string | number | null)[][] = [['SKU', 'Nome', 'Categoria', 'Unidade', 'Cor/Coleção', 'Custo', 'Venda', 'Status', 'Previsão']];
+  const status = (s: string) => ({ EM_FALTA_COM_PREVISAO: 'Em falta', EM_FALTA_SEM_PREVISAO: 'Em falta sem previsão' } as Record<string, string>)[s] ?? textoDisponibilidade(s);
+  for (const p of lista) {
+    linhasProdutos.push([p.sku, p.nome, nomeCat.get(p.categoriaId) ?? '', p.unidadeMedida, p.corColecao, num(p.custoUnitario), num(p.precoVendaUnitario),
+      status(p.disponibilidade), p.previsaoDisponivel ? dataBr(p.previsaoDisponivel) : null]);
+  }
+  for (const p of faltando) linhasProdutos.push([p.sku, p.nome, nomeCat.get(PREFIXO_CATEGORIA[p.sku.slice(0, 3)]!) ?? '', p.unidade, null, null, null, null, null]);
 
   const trilhos = lista.filter((p) => categorias.find((c) => c.id === p.categoriaId)?.trilho);
   const barras = trilhos.length
@@ -580,6 +649,7 @@ export async function planilhaPrecos(db: Banco, lojaId: string): Promise<Buffer>
     ['• Linha de produto novo sem custo é ignorada (as linhas de SRV, MOT, ACP etc. em branco são os códigos que o orçamento usa; preencha para ativar).'],
     ['• Para o trilho ser cobrado por barra, preencha os 6 tamanhos. Até lá, ele é cobrado por metro.'],
     ['• Tecidos, persianas e motores novos: depois confira os dados técnicos (largura do rolo, medidas máximas, canais) na tela do produto.'],
+    ['• Status: Disponível, Em falta (com a data na coluna Previsão, dd/mm/aaaa), Em falta sem previsão, Fora de linha ou Sob consulta. Vazio mantém o atual; produto novo entra como Disponível.'],
     ['• Também é aceito arquivo .csv (separado por ponto e vírgula) com as mesmas colunas.'],
     [''],
     ['Unidades'],
@@ -590,7 +660,7 @@ export async function planilhaPrecos(db: Banco, lojaId: string): Promise<Buffer>
   ];
 
   return escreverXlsx([
-    { nome: 'Produtos', linhas: linhasProdutos, larguras: [14, 40, 26, 10, 22, 14, 14] },
+    { nome: 'Produtos', linhas: linhasProdutos, larguras: [14, 40, 26, 10, 22, 14, 14, 22, 14] },
     { nome: 'Barras de trilho', linhas: linhasBarras, larguras: [14, 36, 20, 14, 14] },
     { nome: 'Instruções', linhas: instrucoes, larguras: [120], semCabecalho: true },
   ]);

@@ -42,3 +42,4 @@ export {
 } from './configurador.js';
 export { regrasDoModelo, type RegraModelo, type ModeloEscolhido } from './regras.js';
 export { MODELOS_CADASTRO, ALTERACAO_EM_MASSA, modeloCadastro, metadataDosCampos, type PerfilCadastro, type CampoTecnico, type ModeloCadastro } from './cadastro.js';
+export { STATUS_DISPONIBILIDADE, ROTULO_DISPONIBILIDADE, alertasDisponibilidade, textoDisponibilidade, dataBr, type StatusDisponibilidade } from './disponibilidade.js';

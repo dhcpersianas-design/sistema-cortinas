@@ -12,6 +12,8 @@ export interface Produto {
   metadata?: Record<string, unknown>;
   /** Caminho da categoria no catálogo (ex.: "Persianas › Rolo › Double Vision"). Opcional. */
   categoria?: string;
+  /** Status de disponibilidade (ver disponibilidade.ts). Ausente = disponível. */
+  disponibilidade?: { status: string; previsao?: string | null };
 }
 
 /** Fonte de produtos. O motor só lê; quem chama decide de onde vêm (banco, seed, mock). */

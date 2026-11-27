@@ -630,6 +630,18 @@ export async function mudarStatus(db: Banco, u: UsuarioSessao, id: string, statu
     if (status === 'ENVIADO') {
       const [n] = await linhas<{ n: number }>(tx, sql`SELECT COUNT(*)::int AS n FROM orcamento_itens_compostos WHERE orcamento_id = ${id}`);
       if (!n?.n) throw new ErroOrcamento('Inclua ao menos um item antes de enviar.');
+      // Disponibilidade (Gabriel, 27/11/2026): fora de linha não vai ao cliente; sob consulta só o ADMIN envia.
+      const status = await linhas<{ sku: string; nome: string; disponibilidade: string }>(tx, sql`
+        SELECT DISTINCT p.sku, p.nome, p.disponibilidade FROM orcamento_componentes oc
+          JOIN orcamento_itens_compostos i ON i.id = oc.item_composto_id
+          JOIN produtos p ON p.sku = oc.sku_snapshot
+         WHERE i.orcamento_id = ${id} AND p.disponibilidade IN ('FORA_DE_LINHA', 'SOB_CONSULTA') ORDER BY p.sku`);
+      const fora = status.filter((s) => s.disponibilidade === 'FORA_DE_LINHA');
+      if (fora.length) throw new ErroOrcamento(`Não dá para enviar: ${fora.map((s) => `${s.nome} (${s.sku})`).join(', ')} está fora de linha. Troque o produto.`, 409);
+      const consulta = status.filter((s) => s.disponibilidade === 'SOB_CONSULTA');
+      if (consulta.length && u.perfil !== 'ADMIN') {
+        throw new ErroOrcamento(`${consulta.map((s) => `${s.nome} (${s.sku})`).join(', ')} é sob consulta: o administrador precisa confirmar o preço e enviar.`, 409);
+      }
       const lib = situacaoLiberacao(c);
       if (lib.pendente) {
         if (u.perfil !== 'ADMIN') throw new ErroOrcamento('Precisa da senha do administrador para enviar.', 409, { exigeLiberacao: true, motivos: lib.motivos });
