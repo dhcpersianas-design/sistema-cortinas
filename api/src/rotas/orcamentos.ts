@@ -91,12 +91,8 @@ export async function rotasOrcamentos(app: FastifyInstance) {
     const repasse = Number((await parametro(app.db, u.lojaId, 'REPASSAR_TAXA_CARTAO')) ?? 0) > 0;
     const { rows: taxas } = await app.db.execute(sql`
       SELECT forma_pagamento AS forma, parcelas,
-<<<<<<< HEAD
              (CASE WHEN ${repasse} AND forma_pagamento IN ('CREDITO_AVISTA', 'CREDITO_PARCELADO') THEN 0
                    ELSE taxa_mdr_pct + taxa_antecip_pct END)::text AS "taxaPct"
-=======
-             (CASE WHEN ${repasse} AND bandeira <> 'TODAS' THEN 0 ELSE taxa_mdr_pct + taxa_antecip_pct END)::text AS "taxaPct"
->>>>>>> origin/claude/project-thread-vfblqz
         FROM taxas_pagamento WHERE bandeira IN ('TODAS', 'VISA_MASTER')`);
     return {
       geradoEm: new Date().toISOString(),

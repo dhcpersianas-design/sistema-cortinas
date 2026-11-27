@@ -186,7 +186,6 @@ describe('contas a receber e a pagar do pedido', () => {
     expect((await req(admin, 'POST', `/api/pedidos/${pedido.id}/receber`, { valor: '2062', forma: 'PIX', data: hoje })).statusCode).toBe(200);
   });
 
-<<<<<<< HEAD
   it('simulação do cartão: crédito 12x embute a taxa (tabela Visa/Master); débito não; vendedor não vê a taxa', async () => {
     const q = 'valor=1000&forma=CREDITO_PARCELADO&parcelas=12';
     const a = (await req(admin, 'GET', `/api/financeiro/simular-cartao?${q}`)).json();
@@ -201,16 +200,6 @@ describe('contas a receber e a pagar do pedido', () => {
     // Só a tabela Visa/Master existe
     const cfg = (await req(admin, 'GET', '/api/financeiro/config')).json();
     expect(new Set(cfg.taxas.map((t: { bandeira: string }) => t.bandeira))).toEqual(new Set(['TODAS', 'VISA_MASTER']));
-=======
-  it('simulação do cartão: Elo/Amex 12x embute a taxa; vendedor não vê a taxa', async () => {
-    const q = 'valor=1000&forma=CREDITO_PARCELADO&parcelas=12&bandeira=ELO_AMEX';
-    const a = (await req(admin, 'GET', `/api/financeiro/simular-cartao?${q}`)).json();
-    expect(a).toMatchObject({ repasse: true, taxaPct: '13.41', cobrado: '1154.87', parcelas: 12, valorParcela: '96.24' });
-    const v = (await req(ana, 'GET', `/api/financeiro/simular-cartao?${q}`)).json();
-    expect(v).toEqual({ repasse: true, cobrado: '1154.87', parcelas: 12, valorParcela: '96.24' });
-    const pix = (await req(ana, 'GET', '/api/financeiro/simular-cartao?valor=1000&forma=PIX')).json();
-    expect(pix.cobrado).toBe('1000.00');
->>>>>>> origin/claude/project-thread-vfblqz
   });
 
   it('lucro real = venda - custo real - taxas - comissão', async () => {
@@ -283,13 +272,6 @@ describe('aditivo, cancelamento e cartão na aprovação', () => {
     expect(pp.saldo).toBe('0.00');
     expect(lucro.venda).toBe(cobrado.toFixed(2)); // venda inclui a taxa paga pelo cliente
     expect(d(lucro.venda).minus(d(lucro.taxas)).minus(d(p.valorTotal)).abs().lte('0.05')).toBe(true);
-<<<<<<< HEAD
-=======
-    // Cada bandeira tem a sua tabela: 2x é 5,39% na Visa/Master e 6,47% na Elo/Amex
-    const sim = async (b: string) => (await req(admin, 'GET', `/api/financeiro/simular-cartao?valor=1000&forma=CREDITO_PARCELADO&parcelas=2&bandeira=${b}`)).json().taxaPct;
-    expect(await sim('VISA_MASTER')).toBe('5.39');
-    expect(await sim('ELO_AMEX')).toBe('6.47');
->>>>>>> origin/claude/project-thread-vfblqz
   });
 
   it('pedido antigo (sem cobranças) ganha o plano com o sinal já pago ao abrir o financeiro', async () => {

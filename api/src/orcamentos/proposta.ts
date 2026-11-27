@@ -73,19 +73,11 @@ export async function montarProposta(db: Banco, id: string, detalhar: boolean): 
     grupos.set(i.ambiente, g);
   }
   const forma = c.formaPagamento ? FORMAS[c.formaPagamento] ?? c.formaPagamento : null;
-<<<<<<< HEAD
   // Crédito com a taxa repassada (Gabriel, 27/11/2026): o valor já vem com a taxa embutida (tabela
   // Visa/Mastercard) e a proposta mostra só o valor final das parcelas, sem falar em taxa.
   // Débito: preço cheio, sem taxa embutida.
   const repasse = await repasseLigado(db, c.lojaId);
   const cartao = c.formaPagamento != null && ['CREDITO_AVISTA', 'CREDITO_PARCELADO'].includes(c.formaPagamento);
-=======
-  // Cartão com a taxa repassada (Gabriel, 27/11/2026): o valor no cartão já vem com a taxa embutida e
-  // a proposta mostra só o valor final das parcelas, sem falar em taxa. [suposição] usa a tabela
-  // Visa/Mastercard; na hora de receber o sistema calcula pela bandeira escolhida.
-  const repasse = await repasseLigado(db, c.lojaId);
-  const cartao = c.formaPagamento != null && ['DEBITO', 'CREDITO_AVISTA', 'CREDITO_PARCELADO'].includes(c.formaPagamento);
->>>>>>> origin/claude/project-thread-vfblqz
   let textoForma: string | null = null;
   if (forma && cartao && repasse && d(c.total).gt(0)) {
     const s = await simularCartao(db, c.lojaId, d(c.total), c.formaPagamento!, c.parcelas ?? 1, 'VISA_MASTER');
@@ -94,11 +86,7 @@ export async function montarProposta(db: Banco, id: string, detalhar: boolean): 
     textoForma = `${forma}${(c.parcelas ?? 1) > 1 ? ` em ${c.parcelas}x de ${dinheiroBR(d(c.total).div(c.parcelas!).toFixed(2))}` : ''}`;
   }
   let opcaoCartao: string | null = null;
-<<<<<<< HEAD
   if (repasse && !cartao && c.formaPagamento !== 'DEBITO' && d(c.total).gt(0)) {
-=======
-  if (repasse && !cartao && d(c.total).gt(0)) {
->>>>>>> origin/claude/project-thread-vfblqz
     const s = await simularCartao(db, c.lojaId, d(c.total), 'CREDITO_PARCELADO', 12, 'VISA_MASTER');
     opcaoCartao = `${forma ? 'Ou no' : 'No'} cartão de crédito em até 12x de ${dinheiroBR(s.valorParcela)}`;
   }

@@ -47,15 +47,9 @@ export async function parametrosMargem(db: Exec, lojaId: string, vendedorId: str
   const [v] = await linhas<{ comissao: string | null; descontoMax: string | null }>(db,
     sql`SELECT comissao_padrao AS comissao, desconto_max_pct AS "descontoMax" FROM usuarios WHERE id = ${vendedorId}`);
   let taxaPct = '0';
-<<<<<<< HEAD
   // Crédito com a taxa repassada ao cliente (REPASSAR_TAXA_CARTAO = 1): a loja recebe o mesmo que no PIX,
   // então a taxa não reduz a margem do orçamento. Débito: preço cheio, a taxa sai da margem.
   const cartao = forma != null && ['CREDITO_AVISTA', 'CREDITO_PARCELADO'].includes(forma);
-=======
-  // Cartão com a taxa repassada ao cliente (REPASSAR_TAXA_CARTAO = 1): a loja recebe o mesmo que no PIX,
-  // então a taxa não reduz a margem do orçamento.
-  const cartao = forma != null && ['DEBITO', 'CREDITO_AVISTA', 'CREDITO_PARCELADO'].includes(forma);
->>>>>>> origin/claude/project-thread-vfblqz
   const repasse = cartao && d((await p('REPASSAR_TAXA_CARTAO')) ?? 0).gt(0);
   if (forma && !repasse) {
     const [t] = await linhas<{ taxa: string }>(db, sql`
