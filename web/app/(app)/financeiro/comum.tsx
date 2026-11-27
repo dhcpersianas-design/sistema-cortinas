@@ -38,29 +38,29 @@ export function situacao(l: Lancamento): { texto: string; classe: string } {
 export const dataCurta = (v?: string | null) => (v ? v.slice(0, 10).split('-').reverse().join('/') : '');
 
 export const FORMAS_CARTAO_WEB = ['DEBITO', 'CREDITO_AVISTA', 'CREDITO_PARCELADO'];
-export const BANDEIRAS_WEB: [string, string][] = [['VISA_MASTER', 'Visa / Mastercard'], ['ELO_AMEX', 'Elo / Amex']];
 
 type Simulacao = { repasse: boolean; cobrado: string; parcelas: number; valorParcela: string; taxaPct?: string };
 
 /**
- * Parcelas, bandeira e "quanto passar na maquininha" (com a taxa embutida, quando o repasse está ligado).
+ * Parcelas e "quanto passar na maquininha" (crédito com a taxa embutida, quando o repasse está ligado).
+ * Taxas: só a tabela Visa/Mastercard, para qualquer bandeira (Gabriel, 27/11/2026).
  * `valor` é o quanto abate da dívida do cliente; o cliente paga `cobrado` no cartão.
  */
-export function CamposCartao({ forma, valor, parcelas, setParcelas, bandeira, setBandeira }: {
-  forma: string; valor: string; parcelas: number; setParcelas: (n: number) => void; bandeira: string; setBandeira: (b: string) => void;
+export function CamposCartao({ forma, valor, parcelas, setParcelas }: {
+  forma: string; valor: string; parcelas: number; setParcelas: (n: number) => void;
 }) {
   const [sim, setSim] = useState<Simulacao | null>(null);
   const cartao = FORMAS_CARTAO_WEB.includes(forma);
   const v = Number(valor.replace(/\./g, '').replace(',', '.'));
   useEffect(() => {
     if (!cartao || !(v > 0)) { setSim(null); return; }
-    const q = new URLSearchParams({ valor: v.toFixed(2), forma, parcelas: String(parcelas), bandeira });
+    const q = new URLSearchParams({ valor: v.toFixed(2), forma, parcelas: String(parcelas) });
     let vivo = true;
     const t = setTimeout(() => {
       api<Simulacao>(`/api/financeiro/simular-cartao?${q}`).then((r) => { if (vivo) setSim(r); }).catch(() => { if (vivo) setSim(null); });
     }, 250);
     return () => { vivo = false; clearTimeout(t); };
-  }, [cartao, v, forma, parcelas, bandeira]);
+  }, [cartao, v, forma, parcelas]);
   if (!cartao) return null;
   return (
     <>
@@ -71,18 +71,13 @@ export function CamposCartao({ forma, valor, parcelas, setParcelas, bandeira, se
           </select>
         </label>
       )}
-      <label className="flex flex-col gap-1">Bandeira
-        <select className={classeSelect} value={bandeira} onChange={(e) => setBandeira(e.target.value)}>
-          {BANDEIRAS_WEB.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
-        </select>
-      </label>
       {sim && (
         <p className="rounded-md border border-sky-500/30 bg-sky-500/10 px-2 py-1.5 text-sm sm:col-span-full">
           Passe na maquininha: <strong>{moeda(sim.cobrado)}</strong>
           {sim.parcelas > 1 ? <> ({sim.parcelas}x de <strong>{moeda(sim.valorParcela)}</strong>)</> : null}
           {sim.repasse && Number(sim.cobrado) > v
             ? <span className="block text-xs text-muted-foreground">Já com a taxa da maquininha embutida: a loja recebe {moeda(v.toFixed(2))}, como no PIX. Para o cliente, informe só o valor final.</span>
-            : null}
+            : forma === 'DEBITO' ? <span className="block text-xs text-muted-foreground">Débito: preço cheio, sem taxa embutida (a taxa fica por conta da loja).</span> : null}
         </p>
       )}
     </>
@@ -97,7 +92,6 @@ export function FormReceber({ pedidoId, lancamentoId, valorPadrao, formaPadrao, 
   const [forma, setForma] = useState(formaPadrao && formaPadrao !== 'MISTO' ? formaPadrao : 'PIX');
   const [valor, setValor] = useState(valorPadrao.replace('.', ','));
   const [parcelas, setParcelas] = useState(3);
-  const [bandeira, setBandeira] = useState('VISA_MASTER');
   const [ocupado, setOcupado] = useState(false);
   const cartao = FORMAS_CARTAO_WEB.includes(forma);
   return (
@@ -109,7 +103,7 @@ export function FormReceber({ pedidoId, lancamentoId, valorPadrao, formaPadrao, 
         const r = await api<{ emAbertoDepois: string; cobrado: string }>(`/api/pedidos/${pedidoId}/receber`, {
           method: 'POST',
           corpo: {
-            valor, forma, parcelas: forma === 'CREDITO_PARCELADO' ? parcelas : undefined, bandeira: cartao ? bandeira : undefined,
+            valor, forma, parcelas: forma === 'CREDITO_PARCELADO' ? parcelas : undefined,
             data: f.get('data'), lancamentoId,
           },
         });
@@ -123,7 +117,7 @@ export function FormReceber({ pedidoId, lancamentoId, valorPadrao, formaPadrao, 
           {FORMAS_RECEB.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
         </select>
       </label>
-      <CamposCartao forma={forma} valor={valor} parcelas={parcelas} setParcelas={setParcelas} bandeira={bandeira} setBandeira={setBandeira} />
+      <CamposCartao forma={forma} valor={valor} parcelas={parcelas} setParcelas={setParcelas} />
       <label className="flex flex-col gap-1">Data<Input type="date" name="data" required defaultValue={hojeISO()} /></label>
       <div className="flex items-end gap-2">
         <Button disabled={ocupado}>Receber</Button>

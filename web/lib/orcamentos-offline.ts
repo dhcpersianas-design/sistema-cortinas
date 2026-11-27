@@ -40,6 +40,12 @@ export type Totais = {
   custoTotal?: string; lucroBruto?: string; margemBrutaPct?: string; taxaPagamentoPct?: string; taxaPagamento?: string;
   imposto?: string; comissaoPct?: string; comissao?: string; lucroLiquido?: string; margemLiquidaPct?: string;
 };
+export type TetoDesconto = {
+  maximo: { valor: string; pct: string; pelo: 'VENDEDOR' | 'MARGEM' };
+  saudavel: { valor: string; pct: string; margemPct: string };
+  minimo: { valor: string; pct: string; margemPct: string };
+  vendedorPct: string | null; senhaAcima: { valor: string; pct: string }; descontoAtual: string; aindaCabe: string; passou: boolean;
+};
 export type Orcamento = {
   id: string; grupoId?: string; codigo?: string; versao?: number; origemId?: string | null; status: string; titulo: string | null;
   clienteId: string; clienteNome: string; clienteTelefone?: string; vendedorNome?: string;
@@ -48,6 +54,8 @@ export type Orcamento = {
   /** Pedido do projeto (depois de aprovado) e se este rascunho é um aditivo do pedido. */
   pedidoId?: string | null; pedidoNumero?: string | null; aditivo?: boolean;
   condicoes: Condicoes; itens: Item[]; totais?: Totais;
+  /** Teto de desconto para negociar (vem da API; nunca vai para o cliente). */
+  teto?: TetoDesconto;
   liberacao?: { exige: boolean; motivos: string[]; liberado: boolean; pendente: boolean; liberadoPorNome: string | null; liberadoEm: string | null };
   /** Só no aparelho */
   pendente?: boolean; idOperacao?: string; provisorio?: boolean; erroSync?: string | null;

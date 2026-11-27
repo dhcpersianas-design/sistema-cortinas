@@ -268,6 +268,47 @@ export function totalizarOrcamento(
   };
 }
 
+export interface TetoDesconto {
+  /** Maior desconto (R$, sobre o subtotal) que ainda deixa a margem líquida >= alvoPct. */
+  valor: Decimal;
+  /** O mesmo em % do subtotal (para baixo, 2 casas). */
+  pct: Decimal;
+  alvoPct: Decimal;
+}
+
+/**
+ * Teto de desconto (Gabriel, 27/11/2026): quanto o vendedor pode dar de desconto sem a margem
+ * líquida cair abaixo de `alvoPct`. Usa a mesma conta de `totalizarOrcamento` (taxa, imposto e
+ * comissão em % do total). Nunca vai para o cliente (PDF/WhatsApp): só para a tela do vendedor.
+ */
+export function tetoDesconto(
+  itens: { vendaTotal: Numerico; custoTotal: Numerico }[],
+  acrescimo: Numerico,
+  p: ParametrosMargem,
+  alvoPct: Numerico,
+): TetoDesconto {
+  const alvo = d(alvoPct);
+  const subtotal = itens.reduce((s, i) => s.plus(d(i.vendaTotal)), ZERO);
+  const custo = itens.reduce((s, i) => s.plus(d(i.custoTotal)), ZERO);
+  const acr = dinheiro(d(acrescimo || 0));
+  const zero = { valor: ZERO, pct: ZERO, alvoPct: alvo };
+  if (subtotal.lte(0)) return zero;
+  const variaveis = d(p.taxaPagamentoPct ?? 0).plus(d(p.aliquotaImpostoPct ?? 0)).plus(d(p.comissaoPct ?? 0));
+  const sobra = d(1).minus(alvo.div(100)).minus(variaveis.div(100));
+  if (sobra.lte(0)) return zero;
+  // total mínimo = custo / (1 - alvo - taxa - imposto - comissão)
+  const totalMinimo = custo.div(sobra);
+  let valor = Decimal.min(subtotal, subtotal.plus(acr).minus(totalMinimo)).toDecimalPlaces(2, Decimal.ROUND_DOWN);
+  if (valor.lte(0)) return zero;
+  // Ajuste fino por causa dos arredondamentos em centavos.
+  const cond = (v: Decimal): CondicoesOrcamento => ({ descontoTipo: 'VALOR', descontoValor: v.toFixed(2), acrescimo: acr.toFixed(2) });
+  for (let i = 0; i < 200 && valor.gt(0) && totalizarOrcamento(itens, cond(valor), p).margemLiquidaPct.lt(alvo); i++) {
+    valor = valor.minus('0.01');
+  }
+  if (valor.lte(0)) return zero;
+  return { valor, pct: valor.div(subtotal).mul(100).toDecimalPlaces(2, Decimal.ROUND_DOWN), alvoPct: alvo };
+}
+
 export interface ChecagemLiberacao {
   exige: boolean;
   motivos: string[];

@@ -11,7 +11,7 @@ import { parametro } from '../catalogo/parametros.js';
 import { documentoEntrada } from '../orcamentos/esquemas.js';
 import {
   documentoPublico, ErroOrcamento, lerCabecalho, lerDocumento, liberar, mudarStatus, noEscopo, novaVersao,
-  parametrosMargem, salvarDocumento, TRANSICOES,
+  parametrosMargem, salvarDocumento, tetoDoOrcamento, TRANSICOES,
 } from '../orcamentos/servico.js';
 import { dinheiroBR, gerarPdf, montarProposta } from '../orcamentos/proposta.js';
 
@@ -43,7 +43,8 @@ export async function rotasOrcamentos(app: FastifyInstance) {
   async function documento(req: FastifyRequest, id: string) {
     const doc = await lerDocumento(app.db, id);
     if (!doc || !noEscopo(req.usuario!, doc.c)) return null;
-    return documentoPublico(req.usuario!, doc);
+    // Teto de desconto: só para a tela de quem está negociando (nunca no PDF/WhatsApp).
+    return { ...documentoPublico(req.usuario!, doc), teto: await tetoDoOrcamento(app.db, doc) };
   }
 
   // ---------------------------------------------------------------- lista
@@ -90,7 +91,8 @@ export async function rotasOrcamentos(app: FastifyInstance) {
     const repasse = Number((await parametro(app.db, u.lojaId, 'REPASSAR_TAXA_CARTAO')) ?? 0) > 0;
     const { rows: taxas } = await app.db.execute(sql`
       SELECT forma_pagamento AS forma, parcelas,
-             (CASE WHEN ${repasse} AND bandeira <> 'TODAS' THEN 0 ELSE taxa_mdr_pct + taxa_antecip_pct END)::text AS "taxaPct"
+             (CASE WHEN ${repasse} AND forma_pagamento IN ('CREDITO_AVISTA', 'CREDITO_PARCELADO') THEN 0
+                   ELSE taxa_mdr_pct + taxa_antecip_pct END)::text AS "taxaPct"
         FROM taxas_pagamento WHERE bandeira IN ('TODAS', 'VISA_MASTER')`);
     return {
       geradoEm: new Date().toISOString(),
