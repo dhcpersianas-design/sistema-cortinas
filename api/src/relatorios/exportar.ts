@@ -1,5 +1,5 @@
-import { crc32, deflateRawSync } from 'node:zlib';
 import PDFDocument from 'pdfkit';
+import { zip } from '../planilhas/xlsx.js';
 import type { Celula, Coluna, Linha, Relatorio, TipoColuna } from './tipos.js';
 
 /** Exporta um relatório (mesma estrutura da tela) para PDF e para planilha XLSX, sem dependências extras. */
@@ -229,33 +229,4 @@ export function relatorioXlsx(r: Relatorio, loja: string): Buffer {
     ['xl/worksheets/sheet1.xml', planilha],
   ];
   return zip(arquivos.map(([nome, conteudo]) => [nome, Buffer.from(conteudo, 'utf-8')]));
-}
-
-/** ZIP mínimo (deflate), suficiente para o XLSX. */
-function zip(arquivos: [string, Buffer][]): Buffer {
-  const locais: Buffer[] = [];
-  const central: Buffer[] = [];
-  let offset = 0;
-  for (const [nome, dados] of arquivos) {
-    const nomeB = Buffer.from(nome, 'utf-8');
-    const comp = deflateRawSync(dados);
-    const crc = crc32(dados);
-    const h = Buffer.alloc(30);
-    h.writeUInt32LE(0x04034b50, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(0x0800, 6); h.writeUInt16LE(8, 8);
-    h.writeUInt16LE(0, 10); h.writeUInt16LE(0x21, 12); h.writeUInt32LE(crc, 14); h.writeUInt32LE(comp.length, 18);
-    h.writeUInt32LE(dados.length, 22); h.writeUInt16LE(nomeB.length, 26); h.writeUInt16LE(0, 28);
-    locais.push(h, nomeB, comp);
-    const c = Buffer.alloc(46);
-    c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE(20, 4); c.writeUInt16LE(20, 6); c.writeUInt16LE(0x0800, 8); c.writeUInt16LE(8, 10);
-    c.writeUInt16LE(0, 12); c.writeUInt16LE(0x21, 14); c.writeUInt32LE(crc, 16); c.writeUInt32LE(comp.length, 20);
-    c.writeUInt32LE(dados.length, 24); c.writeUInt16LE(nomeB.length, 28); c.writeUInt16LE(0, 30); c.writeUInt16LE(0, 32);
-    c.writeUInt16LE(0, 34); c.writeUInt16LE(0, 36); c.writeUInt32LE(0, 38); c.writeUInt32LE(offset, 42);
-    central.push(c, nomeB);
-    offset += 30 + nomeB.length + comp.length;
-  }
-  const cd = Buffer.concat(central);
-  const fim = Buffer.alloc(22);
-  fim.writeUInt32LE(0x06054b50, 0); fim.writeUInt16LE(0, 4); fim.writeUInt16LE(0, 6); fim.writeUInt16LE(arquivos.length, 8);
-  fim.writeUInt16LE(arquivos.length, 10); fim.writeUInt32LE(cd.length, 12); fim.writeUInt32LE(offset, 16); fim.writeUInt16LE(0, 20);
-  return Buffer.concat([...locais, cd, fim]);
 }

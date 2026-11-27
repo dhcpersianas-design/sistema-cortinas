@@ -51,6 +51,8 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(caches.open(ESTATICO).then(async (c) => (await c.match(req)) ?? fetch(req).then((r) => { if (r.ok) c.put(req, r.clone()); return r; })));
     return;
   }
+  // Importação de preços (só ADMIN, com custos): nunca guardar em cache.
+  if (url.pathname.startsWith('/api/catalogo/importac')) return;
   if (url.pathname.startsWith('/api/catalogo/')) {
     e.respondWith(redePrimeiro(req, DADOS));
     return;
