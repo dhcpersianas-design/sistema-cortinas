@@ -16,6 +16,7 @@ CREATE OR REPLACE FUNCTION f_busca(t TEXT) RETURNS TEXT
 -- [cadastros] vendedor_responsavel_id: o VENDEDOR vê só os clientes dele (decisão
 -- do Gabriel). Quem cadastra vira o responsável; o ADMIN pode transferir.
 -- cpf_cnpj passa a ser guardado só com dígitos; telefone no padrão +55DDNNNNNNNNN.
+-- CPF/CNPJ e WhatsApp são únicos: um cadastro por pessoa.
 ALTER TABLE clientes
   ADD COLUMN vendedor_responsavel_id UUID REFERENCES usuarios(id),
   ADD COLUMN criado_por_id           UUID REFERENCES usuarios(id),
@@ -25,6 +26,8 @@ ALTER TABLE clientes
 
 CREATE INDEX idx_clientes_nome_busca_trgm ON clientes USING gin (nome_busca gin_trgm_ops);
 CREATE INDEX idx_clientes_vendedor        ON clientes (vendedor_responsavel_id);
+-- [cadastros] Um cadastro por WhatsApp, mesma regra do CPF (decisão do Gabriel, 27/11/2026).
+ALTER TABLE clientes ADD CONSTRAINT clientes_telefone_whatsapp_unico UNIQUE (telefone_whatsapp);
 
 -- FORNECEDORES
 -- [cadastros] Instalador e costureira terceirizados são fornecedores sem login

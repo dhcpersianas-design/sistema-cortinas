@@ -80,19 +80,26 @@ describe('CRM de clientes', () => {
   });
 
   it('CPF repetido: avisa sem expor o cliente de outro vendedor', async () => {
-    const r = await req(beto, 'POST', '/api/clientes', { ...joao, nomeCompleto: 'Outro' });
+    const r = await req(beto, 'POST', '/api/clientes', { ...joao, nomeCompleto: 'Outro', telefoneWhatsapp: '11 93333-4444' });
     expect(r.statusCode).toBe(409);
     expect(r.json().erro).toMatch(/outro vendedor/);
     expect(r.json().clienteId).toBeUndefined();
-    const r2 = await req(ana, 'POST', '/api/clientes', { ...joao, nomeCompleto: 'Outro' });
+    const r2 = await req(ana, 'POST', '/api/clientes', { ...joao, nomeCompleto: 'Outro', telefoneWhatsapp: '11 93333-4444' });
     expect(r2.statusCode).toBe(409);
     expect(r2.json().clienteId).toBe(idJoao);
   });
 
-  it('avisa (sem bloquear) WhatsApp repetido', async () => {
-    const r = await req(ana, 'POST', '/api/clientes', { nomeCompleto: 'Esposa do João', telefoneWhatsapp: '11987654321' });
-    expect(r.statusCode).toBe(201);
-    expect(r.json().avisos[0]).toMatch(/João da Conceição/);
+  it('WhatsApp repetido bloqueia, como o CPF (mesmo escrito de outro jeito)', async () => {
+    const r = await req(ana, 'POST', '/api/clientes', { nomeCompleto: 'Esposa do João', telefoneWhatsapp: '+55 (11) 98765-4321' });
+    expect(r.statusCode).toBe(409);
+    expect(r.json()).toMatchObject({ erro: 'Já existe cliente com este WhatsApp.', clienteId: idJoao });
+    const r2 = await req(beto, 'POST', '/api/clientes', { nomeCompleto: 'Outro', telefoneWhatsapp: '11987654321' });
+    expect(r2.statusCode).toBe(409);
+    expect(r2.json().erro).toMatch(/outro vendedor/);
+    expect(r2.json().clienteId).toBeUndefined();
+    // Editar outro cliente para o mesmo WhatsApp também é recusado
+    const { clientes: [maria] } = (await req(beto, 'GET', '/api/clientes?q=maria')).json();
+    expect((await req(beto, 'PATCH', `/api/clientes/${maria.id}`, { telefoneWhatsapp: '11987654321' })).statusCode).toBe(409);
   });
 
   it('reenvio offline com o mesmo UUID não duplica', async () => {

@@ -91,15 +91,26 @@ export async function rotasClientes(app: FastifyInstance) {
     return Boolean(v);
   }
 
-  /** CPF/CNPJ já usado por outro cliente: mensagem sem expor dados de cliente de outro vendedor. */
-  async function documentoEmUso(req: FastifyRequest, digitos: string, ignorarId?: string) {
-    const [outro] = await app.db.select({ id: clientes.id, vendedor: clientes.vendedorResponsavelId }).from(clientes)
-      .where(and(eq(clientes.cpfCnpj, digitos), ignorarId ? sql`${clientes.id} <> ${ignorarId}` : undefined));
-    if (!outro) return null;
-    const visivel = pode(req.usuario!, 'clientes.todos') || outro.vendedor === req.usuario!.id;
-    return visivel
-      ? { erro: 'Já existe cliente com este CPF/CNPJ.', clienteId: outro.id }
-      : { erro: 'Este CPF/CNPJ já está cadastrado para outro vendedor. Peça ao administrador para transferir o cliente para você.' };
+  /**
+   * CPF/CNPJ e WhatsApp são únicos (decisão do Gabriel: um cadastro por pessoa).
+   * Se o outro cliente é de outro vendedor, a mensagem não expõe os dados dele.
+   */
+  async function emUso(req: FastifyRequest, d: { cpfCnpj?: string | null; telefoneWhatsapp?: string }, ignorarId?: string) {
+    const checagens = [
+      { coluna: clientes.cpfCnpj, valor: d.cpfCnpj, rotulo: 'CPF/CNPJ' },
+      { coluna: clientes.telefoneWhatsapp, valor: d.telefoneWhatsapp, rotulo: 'WhatsApp' },
+    ];
+    for (const c of checagens) {
+      if (!c.valor) continue;
+      const [outro] = await app.db.select({ id: clientes.id, vendedor: clientes.vendedorResponsavelId }).from(clientes)
+        .where(and(eq(c.coluna, c.valor), ignorarId ? sql`${clientes.id} <> ${ignorarId}` : undefined));
+      if (!outro) continue;
+      const visivel = pode(req.usuario!, 'clientes.todos') || outro.vendedor === req.usuario!.id;
+      return visivel
+        ? { erro: `Já existe cliente com este ${c.rotulo}.`, clienteId: outro.id }
+        : { erro: `Este ${c.rotulo} já está cadastrado para outro vendedor. Peça ao administrador para transferir o cliente para você.` };
+    }
+    return null;
   }
 
   // ---------------------------------------------------------------- lista e busca
@@ -203,10 +214,8 @@ export async function rotasClientes(app: FastifyInstance) {
       if (!(await vendedorValido(u.lojaId, vendedorResponsavelId))) return res.code(400).send({ erro: 'Vendedor responsável inválido.' });
       responsavel = vendedorResponsavelId;
     }
-    if (documento) {
-      const uso = await documentoEmUso(req, documento.digitos);
-      if (uso) return res.code(409).send(uso);
-    }
+    const uso = await emUso(req, { cpfCnpj: documento?.digitos, telefoneWhatsapp: dados.telefoneWhatsapp });
+    if (uso) return res.code(409).send(uso);
     const [novo] = await app.db.insert(clientes).values({
       ...(id ? { id } : {}),
       ...dados,
@@ -218,15 +227,8 @@ export async function rotasClientes(app: FastifyInstance) {
       atualizadoEm: sql`date_trunc('milliseconds', NOW())`,
     }).returning({ id: clientes.id });
     const cliente = (await buscarUm(req, novo!.id))!;
-    return res.code(201).send({ cliente, jaExistia: false, avisos: await avisosTelefone(req, cliente) });
+    return res.code(201).send({ cliente, jaExistia: false, avisos: [] });
   });
-
-  /** Aviso (não bloqueia): outro cliente visível com o mesmo WhatsApp, possível duplicado. */
-  async function avisosTelefone(req: FastifyRequest, c: ClientePublico): Promise<string[]> {
-    const outros = await app.db.select({ nome: clientes.nomeCompleto }).from(clientes)
-      .where(and(escopo(req), eq(clientes.telefoneWhatsapp, c.telefoneWhatsapp), sql`${clientes.id} <> ${c.id}`)).limit(3);
-    return outros.length ? [`Mesmo WhatsApp de: ${outros.map((o) => o.nome).join(', ')}. Confira se não é cadastro duplicado.`] : [];
-  }
 
   // ---------------------------------------------------------------- editar
   app.patch<{ Params: { id: string } }>('/api/clientes/:id', { preHandler: exigir('clientes.editar') }, async (req, res) => {
@@ -247,11 +249,9 @@ export async function rotasClientes(app: FastifyInstance) {
     const mudancas: Partial<typeof clientes.$inferInsert> = { ...campos };
     if (vendedorResponsavelId !== undefined) mudancas.vendedorResponsavelId = vendedorResponsavelId;
     if (ativo !== undefined) mudancas.ativo = ativo;
+    const uso = await emUso(req, { cpfCnpj: documento?.digitos, telefoneWhatsapp: campos.telefoneWhatsapp }, atual.id);
+    if (uso) return res.code(409).send(uso);
     if (documento !== undefined) {
-      if (documento) {
-        const uso = await documentoEmUso(req, documento.digitos, atual.id);
-        if (uso) return res.code(409).send(uso);
-      }
       mudancas.cpfCnpj = documento?.digitos ?? null;
       if (documento) mudancas.tipoPessoa = documento.tipo;
     }
@@ -271,7 +271,7 @@ export async function rotasClientes(app: FastifyInstance) {
       });
     }
     const cliente = await buscarUm(req, atual.id);
-    return { cliente, avisos: cliente ? await avisosTelefone(req, cliente) : [] };
+    return { cliente, avisos: [] };
   });
 
   // Lista curta de vendedores ativos para o ADMIN escolher o responsável.

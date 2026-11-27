@@ -93,14 +93,15 @@ O navegador fala só com o Next, que repassa `/api/*` para a API (mesma origem, 
 
 ## 6. Cadastros (clientes, fornecedores, catálogo), 27/11/2026
 
-Suposições marcadas **[suposição]** aguardam confirmação do Gabriel.
+Tudo abaixo foi confirmado pelo Gabriel em 27/11/2026.
 
 - **Cliente tem um vendedor responsável** (`clientes.vendedor_responsavel_id`). Quem cadastra vira o
   responsável; o VENDEDOR vê e edita só os dele; o ADMIN vê todos, transfere e inativa.
-  **[suposição]** Vendedor não inativa cliente (só o ADMIN), para não sumir histórico por engano.
-- **CPF/CNPJ único** e guardado só com dígitos (dígito verificador conferido). Se outro vendedor tenta
-  cadastrar um CPF que já existe, o sistema avisa sem mostrar os dados do outro cliente e pede para o
-  ADMIN transferir. **[suposição]** WhatsApp repetido só gera aviso (marido e esposa podem dividir número).
+  Vendedor não inativa cliente (só o ADMIN), para não sumir histórico por engano.
+- **CPF/CNPJ e WhatsApp únicos** (confirmado pelo Gabriel, 27/11/2026): um cadastro por CPF e por
+  WhatsApp. CPF guardado só com dígitos (dígito verificador conferido). Se outro vendedor tenta
+  cadastrar um CPF ou WhatsApp que já existe, o sistema recusa sem mostrar os dados do outro cliente
+  e pede para o ADMIN transferir.
 - **Telefone** sempre no padrão `+55DDNNNNNNNNN`; botão "Abrir WhatsApp" usa link `wa.me` (sem custo).
 - **Busca** sem acento (`unaccent` + `pg_trgm`): nome (tolera erro de digitação), telefone, CPF, e-mail,
   bairro/cidade e **produto comprado** (descrição dos itens dos pedidos, ex.: "linho", "wave").
