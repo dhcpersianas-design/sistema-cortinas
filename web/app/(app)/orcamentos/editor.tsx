@@ -127,7 +127,8 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
   const verCustoDoc = doc.podeVerCustos ?? verCusto;
   const lib = doc.liberacao;
   const ultimaVersao = !doc.versaoMaisNovaId || doc.versaoMaisNovaId === doc.id;
-  const temControleNoAmbiente = (amb: string, ignorar?: string) => doc.itens.some((i) => i.id !== ignorar && i.ambiente === amb && i.tipo === 'PERSIANA'
+  /** Controle é pela casa toda (Gabriel, 27/11/2026): se já há um no orçamento, a nova persiana vem sem. */
+  const temControleNoOrcamento = (ignorar?: string) => doc.itens.some((i) => i.id !== ignorar && i.tipo === 'PERSIANA'
     && (i.entrada as { acionamento?: string; qtdControles?: number }).acionamento === 'MOTORIZADO'
     && ((i.entrada as { qtdControles?: number }).qtdControles ?? 1) > 0);
 
@@ -137,8 +138,8 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
     aplicar({ ...doc!, itens }, { mensagem: existe ? 'Item atualizado.' : 'Item incluído.' }).then((foi) => { if (foi) setForm(null); });
   }
   type EntradaPersiana = { acionamento?: string; qtdControles?: number; numPecas?: number; skus?: Record<string, string> };
-  /** Controles do ambiente: cada canal aciona 1 peça motorizada (Gabriel, 27/11/2026). */
-  function controlesDoAmbiente(itens: Item[]) {
+  /** Controles da casa toda: soma as peças motorizadas do orçamento; cada canal aciona 1 peça (Gabriel, 27/11/2026). */
+  function controlesDaCasa(itens: Item[]) {
     const motorizadas = itens.filter((i) => i.tipo === 'PERSIANA' && (i.entrada as EntradaPersiana).acionamento === 'MOTORIZADO');
     if (motorizadas.length === 0) return null;
     const pecas = motorizadas.reduce((s, i) => s + ((i.entrada as EntradaPersiana).numPecas ?? 1), 0);
@@ -156,9 +157,9 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
       igual: chave(atual) === chave(sugestao.map((x) => ({ sku: x.sku, quantidade: x.quantidade }))),
     };
   }
-  /** Põe os controles sugeridos nas primeiras persianas motorizadas do ambiente; as outras ficam sem. */
-  function aplicarSugestaoControles(amb: string) {
-    const info = controlesDoAmbiente(doc!.itens.filter((i) => i.ambiente === amb));
+  /** Põe os controles sugeridos nas primeiras persianas motorizadas do orçamento; as outras ficam sem. */
+  function aplicarSugestaoControles() {
+    const info = controlesDaCasa(doc!.itens);
     if (!info) return;
     const fila = info.sugestao.flatMap((x) => [{ sku: x.sku, quantidade: x.quantidade }]);
     let n = 0;
@@ -227,32 +228,32 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
         <CardHeader><CardTitle>Ambientes e itens</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           {doc.itens.length === 0 && <p className="text-sm text-muted-foreground">Nenhum item ainda. Inclua o primeiro vão.</p>}
+          {(() => {
+            const c = controlesDaCasa(doc.itens);
+            if (!c) return null;
+            const txt = (l: { sku: string; quantidade: number }[]) => (l.length ? l.map((x) => `${x.quantidade}x ${c.nome(x.sku)}`).join(' + ') : 'nenhum');
+            return (
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs">
+                <span>Casa toda: {c.pecas} peça(s) motorizada(s) · controles: {txt(c.atual)}</span>
+                {!c.igual && c.sugestao.length > 0 && (
+                  <>
+                    <span className="text-muted-foreground">Sugestão: {txt(c.sugestao)}</span>
+                    {editavel && <Button size="sm" variant="outline" onClick={() => aplicarSugestaoControles()}>Usar sugestão</Button>}
+                  </>
+                )}
+              </div>
+            );
+          })()}
           {grupos.map(([amb, itens]) => (
             <div key={amb} className="space-y-2">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold">{amb}</h3>
                 {editavel && <Button size="sm" variant="ghost" onClick={() => { setAmbienteNovo(amb); setForm('novo'); }}>+ item em {amb}</Button>}
               </div>
-              {(() => {
-                const c = controlesDoAmbiente(itens);
-                if (!c) return null;
-                const txt = (l: { sku: string; quantidade: number }[]) => (l.length ? l.map((x) => `${x.quantidade}x ${c.nome(x.sku)}`).join(' + ') : 'nenhum');
-                return (
-                  <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs">
-                    <span>{c.pecas} peça(s) motorizada(s) · controles: {txt(c.atual)}</span>
-                    {!c.igual && c.sugestao.length > 0 && (
-                      <>
-                        <span className="text-muted-foreground">Sugestão: {txt(c.sugestao)}</span>
-                        {editavel && <Button size="sm" variant="outline" onClick={() => aplicarSugestaoControles(amb)}>Usar sugestão</Button>}
-                      </>
-                    )}
-                  </div>
-                );
-              })()}
               {itens.map((i) => (
                 <div key={i.id} className="rounded-md border p-3">
                   {form === i.id ? (
-                    <FormItem produtos={produtos} ambientes={ambientes} inicial={i} temControleNoAmbiente={temControleNoAmbiente}
+                    <FormItem produtos={produtos} ambientes={ambientes} inicial={i} temControleNoOrcamento={temControleNoOrcamento}
                       onSalvar={salvarItem} onCancelar={() => setForm(null)} />
                   ) : (
                     <>
@@ -292,7 +293,7 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
             </div>
           ))}
           {form === 'novo' ? (
-            <FormItem produtos={produtos} ambientes={ambientes} ambienteSugerido={ambienteNovo} temControleNoAmbiente={temControleNoAmbiente}
+            <FormItem produtos={produtos} ambientes={ambientes} ambienteSugerido={ambienteNovo} temControleNoOrcamento={temControleNoOrcamento}
               onSalvar={salvarItem} onCancelar={() => setForm(null)} />
           ) : editavel && (
             <Button onClick={() => { setAmbienteNovo(undefined); setForm('novo'); }}>Incluir item (novo ambiente ou vão)</Button>

@@ -34,12 +34,12 @@ type Props = {
   inicial?: Item;
   ambienteSugerido?: string;
   /** Já existe controle remoto em outra persiana motorizada deste ambiente? */
-  temControleNoAmbiente: (ambiente: string, ignorarId?: string) => boolean;
+  temControleNoOrcamento: (ignorarId?: string) => boolean;
   onSalvar: (i: Item) => void;
   onCancelar: () => void;
 };
 
-export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temControleNoAmbiente, onSalvar, onCancelar }: Props) {
+export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temControleNoOrcamento, onSalvar, onCancelar }: Props) {
   const e = (inicial?.entrada ?? {}) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
   const [tipo, setTipo] = useState<'CORTINA' | 'PERSIANA'>(inicial?.tipo ?? 'CORTINA');
   const [confeccao, setConfeccao] = useState<string>(e.confeccao ?? 'WAVE');
@@ -122,7 +122,7 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
   // com várias, o configurador sugere um controle com canais para todas (botão no ambiente).
   const controlePadrao = inicial?.tipo === 'PERSIANA' && e.acionamento === 'MOTORIZADO'
     ? ((e.qtdControles ?? 1) > 0 ? (e.skus?.controle ?? 'MOT-002') : '')
-    : (temControleNoAmbiente(ambienteInicial, inicial?.id) ? '' : (porCategoria.controles[0]?.sku ?? ''));
+    : (temControleNoOrcamento(inicial?.id) ? '' : (porCategoria.controles[0]?.sku ?? ''));
 
   return (
     <form onSubmit={salvar} className="grid gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2">
