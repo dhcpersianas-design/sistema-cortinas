@@ -1,7 +1,7 @@
 # Decisões da fundação
 
 Registro das escolhas feitas ao montar a base do sistema (estrutura, banco e login).
-Itens marcados **SUPOSIÇÃO** ainda precisam de confirmação do Gabriel.
+Todas as suposições foram confirmadas pelo Gabriel em 27/11/2026.
 
 ## 1. Só 2 perfis de acesso (decisão do Gabriel, 27/11/2026)
 
