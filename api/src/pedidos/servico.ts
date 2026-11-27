@@ -162,7 +162,7 @@ async function mudarStatus(tx: Exec, p: Pick<CabecalhoPedido, 'id' | 'status'>, 
   await registrarEvento(tx, p.id, usuarioId, 'STATUS', `${STATUS_PEDIDO[novo] ?? novo}.${complemento ? ` ${complemento}` : ''}`, { de: p.status, para: novo });
 }
 
-/** Previsão de entrega: prazo do orçamento (dias úteis) contado a partir de hoje. */
+/** Previsão de entrega: prazo do orçamento (dias úteis) contado a partir de hoje, o dia em que as medidas foram conferidas. */
 async function previsaoEntrega(tx: Exec, p: Pick<CabecalhoPedido, 'lojaId' | 'prazoEntregaDias'>): Promise<string> {
   const prazo = p.prazoEntregaDias ?? Number((await parametro(tx as Banco, p.lojaId, 'PRAZO_ENTREGA_DIAS_UTEIS')) ?? 14);
   return somarDiasUteis(hojeLoja(), prazo);
@@ -209,6 +209,7 @@ export async function aprovarOrcamento(db: Banco, u: UsuarioSessao, orcamentoId:
     await tx.execute(sql`UPDATE orcamentos SET status = 'APROVADO', data_aprovacao = NOW(), congelado_em = COALESCE(congelado_em, NOW()),
       atualizado_em = date_trunc('milliseconds', clock_timestamp()) WHERE id = ${c.id}`);
     await tx.execute(sql`UPDATE clientes SET ultima_compra_em = NOW() WHERE id = ${c.clienteId}`);
+    if (conferidas) await marcarMedicoesConferidas(tx, c.grupoId, u.id);
     await auditar(tx, c.id, u.id, [{ acao: 'STATUS', descricao: `Aprovado pelo cliente: virou o pedido ${numero}.`, detalhes: { de: c.status, para: 'APROVADO', pedidoId: p!.id } }]);
     await registrarEvento(tx, p!.id, u.id, 'CRIADO',
       `Pedido criado a partir do orçamento ${c.codigo} v${c.versao} (${STATUS_PEDIDO[status]}).${e.observacao ? ` ${e.observacao}` : ''}`,
@@ -222,6 +223,16 @@ export async function aprovarOrcamento(db: Banco, u: UsuarioSessao, orcamentoId:
 
 // ------------------------------------------------------------------ conferência de medidas e aditivos
 
+/**
+ * As medidas do pedido foram conferidas (sem alteração ou aditivo de medição confirmado):
+ * as medições feitas do projeto (Agenda e medição) ficam marcadas como conferidas.
+ */
+export async function marcarMedicoesConferidas(tx: Exec, grupoId: string, usuarioId: string) {
+  await tx.execute(sql`UPDATE medicoes SET conferida_em = NOW(), conferida_por_id = ${usuarioId}, atualizado_em = NOW()
+    WHERE status = 'REALIZADA' AND conferida_em IS NULL
+      AND orcamento_id IN (SELECT id FROM orcamentos WHERE grupo_id = ${grupoId})`);
+}
+
 /** Medição feita e nada mudou: segue para aguardar o sinal. */
 export async function conferirSemAlteracao(db: Banco, u: UsuarioSessao, pedidoId: string) {
   await db.transaction(async (tx) => {
@@ -231,6 +242,7 @@ export async function conferirSemAlteracao(db: Banco, u: UsuarioSessao, pedidoId
     await tx.execute(sql`UPDATE pedidos SET medidas_conferidas_em = NOW(), medidas_conferidas_por_id = ${u.id},
       data_previsao_entrega = ${await previsaoEntrega(tx, p)}::date WHERE id = ${p.id}`);
     await mudarStatus(tx, p, 'AGUARDANDO_SINAL', u.id, 'Medidas conferidas no local, sem alteração.');
+    await marcarMedicoesConferidas(tx, p.grupoId, u.id);
     await atualizarVencimentoSaldo(tx, p.id);
     await sincronizarComissao(tx, p.id, u.id);
   });
@@ -328,6 +340,7 @@ export async function confirmarAditivo(db: Banco, u: UsuarioSessao, pedidoId: st
       await tx.execute(sql`UPDATE pedidos SET medidas_conferidas_em = NOW(), medidas_conferidas_por_id = ${u.id},
         data_previsao_entrega = ${await previsaoEntrega(tx, p)}::date WHERE id = ${p.id}`);
       await mudarStatus(tx, p, 'AGUARDANDO_SINAL', u.id, 'Medidas conferidas no local (com aditivo).');
+      await marcarMedicoesConferidas(tx, p.grupoId, u.id);
     } else if (ETAPAS_COMPRA.includes(p.status)) {
       const g = await gerarCompras(tx, p.id, p.lojaId, a.id, a.numero);
       ordensCriadas = g.criadas;

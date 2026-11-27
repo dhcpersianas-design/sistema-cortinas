@@ -53,6 +53,15 @@ precisa usar o sistema na obra mesmo sem internet.
 - Aditivo de medição usa o configurador de orçamento, que já funciona offline.
 - Precisam de internet: aprovar o orçamento, confirmar aditivo, sinal, compras, agenda e os PDFs.
 
+## Medição na obra (Agenda e medição, migração 0009)
+
+- Ao abrir a Agenda com internet, o app baixa as visitas do usuário (de ontem até 30 dias, e as medidas
+  ainda não conferidas) em `GET /api/medicoes/pacote-offline` (IndexedDB v4, store `medicoes`).
+- Sem internet: abrir a visita, registrar os vãos (em centímetros, convertidos para metros) e tirar fotos.
+  Os vãos ficam em `medicoesPendentes` e as fotos (reduzidas para até 1600 px, JPEG) em `fotosPendentes`;
+  tudo é enviado sozinho quando a conexão volta. Ids gerados no aparelho: reenviar não duplica.
+- Precisam de internet: marcar, remarcar, cancelar e conferir a medição.
+
 ## Próximas etapas (com medição e orçamento, Fase 2)
 
 0. **Pacote para o dia**: ao abrir com internet, o app baixa agenda do dia, clientes,

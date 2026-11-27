@@ -13,6 +13,7 @@ import {
 } from '@/lib/orcamentos-offline';
 import { FormItem } from './form-item';
 import { TabelaComponentes } from './componentes';
+import { MedidasDaObra } from './medidas-obra';
 import { corSemaforo, FORMAS, metros, moeda, nomeSemaforo, pct, STATUS } from './formato';
 
 type Props = { id: string; admin: boolean; verCusto: boolean; recado?: string | null; onVoltar: () => void; onTrocarId: (id: string, mensagem?: string) => void };
@@ -251,6 +252,14 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
           Versão enviada ao cliente: os valores estão congelados. Para mudar (ex.: depois da medição), crie uma nova versão.
         </p>
       )}
+      {ultimaVersao && ['ENVIADO', 'AGUARDANDO_MEDICAO', 'EM_NEGOCIACAO', 'RASCUNHO'].includes(doc.status) && !doc.aditivo && !doc.condicoes.medidasConferidas && doc.codigo && (
+        <p className="text-sm">
+          <a className="underline" href={`/agenda?novo=1&cliente=${doc.clienteId}&nome=${encodeURIComponent(doc.clienteNome)}&orcamento=${doc.id}`}>Marcar a visita de medição</a>
+          <span className="text-muted-foreground"> · as medidas e fotos tiradas na obra aparecem aqui para usar nos itens.</span>
+        </p>
+      )}
+
+      <MedidasDaObra doc={doc} editavel={editavel} onAplicar={(itens, mensagem) => aplicar({ ...doc, itens }, { mensagem })} />
 
       {/* Itens por ambiente */}
       <Card>

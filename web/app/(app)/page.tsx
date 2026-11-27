@@ -11,7 +11,7 @@ const MODULOS: Modulo[] = [
   { titulo: 'Clientes', descricao: 'Cadastro, histórico e pesquisa por nome, telefone ou produto (funciona offline)', permissao: 'clientes.ver', href: '/clientes' },
   { titulo: 'Fornecedores', descricao: 'Fábricas, ateliês e instaladores terceirizados', permissao: 'fornecedores.ver', href: '/fornecedores' },
   { titulo: 'Orçamentos', descricao: 'Configurador por ambiente, proposta em PDF e WhatsApp (funciona offline)', permissao: 'orcamentos.proprios', href: '/orcamentos' },
-  { titulo: 'Agenda de medição', descricao: 'Marcar a visita técnica e fotos do vão (hoje: status "Aguardando medição" + nova versão)', permissao: 'medicoes.proprias' },
+  { titulo: 'Agenda e medição', descricao: 'Visitas de medição e instalações da semana; medir na obra com fotos do vão (funciona offline)', permissao: 'medicoes.proprias', href: '/agenda' },
   { titulo: 'Pedidos', descricao: 'Orçamento aprovado vira pedido: medição, aditivo, sinal e andamento', permissao: 'pedidos.proprios', href: '/pedidos' },
   { titulo: 'Compras e produção', descricao: 'Ordens por fornecedor, ficha de corte e pedido de fábrica', permissao: 'compras.gerenciar', href: '/compras' },
   { titulo: 'Instalações', descricao: 'Agenda, OS e aceite do cliente na obra (funciona offline)', permissao: 'pedidos.proprios', href: '/instalacoes' },
