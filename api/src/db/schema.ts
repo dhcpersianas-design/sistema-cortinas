@@ -62,6 +62,9 @@ export const categoriasProduto = pgTable('categorias_produto', {
   nome: varchar('nome', { length: 80 }).notNull(),
   tipoGrupo: varchar('tipo_grupo', { length: 30 }).notNull(),
   ordemExibicao: integer('ordem_exibicao').default(0),
+  paiId: integer('pai_id'),
+  perfil: varchar('perfil', { length: 30 }).notNull().default('GENERICO'),
+  markupPct: numeric('markup_pct', { precision: 7, scale: 2 }),
 });
 
 export const produtos = pgTable('produtos', {

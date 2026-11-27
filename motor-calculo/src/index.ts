@@ -41,3 +41,4 @@ export {
   type CondicoesOrcamento, type ParametrosMargem, type TotaisOrcamento, type ChecagemLiberacao,
 } from './configurador.js';
 export { regrasDoModelo, type RegraModelo, type ModeloEscolhido } from './regras.js';
+export { MODELOS_CADASTRO, modeloCadastro, metadataDosCampos, type PerfilCadastro, type CampoTecnico, type ModeloCadastro } from './cadastro.js';

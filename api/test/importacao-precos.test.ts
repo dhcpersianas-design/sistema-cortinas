@@ -166,7 +166,7 @@ describe('importação de preços', () => {
     const skus = abas[0]!.linhas.map((l) => l[0]?.texto);
     expect(skus).toContain('TEC-001');
     const srv3 = abas[0]!.linhas.find((l) => l[0]?.texto === 'SRV-003')!;
-    expect(srv3.map((c) => c?.texto ?? '')).toEqual(['SRV-003', 'Instalacao Persiana Motorizada', 'Servicos de Instalacao', 'PC']);
+    expect(srv3.map((c) => c?.texto ?? '')).toEqual(['SRV-003', 'Instalacao Persiana Motorizada', 'Serviços > Instalação', 'PC']);
     expect(abas[1]!.linhas.filter((l) => l[0]?.texto === 'TRI-002')).toHaveLength(6);
 
     // A planilha baixada, enviada de volta sem mexer, não muda nada.

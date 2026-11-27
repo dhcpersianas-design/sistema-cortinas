@@ -57,13 +57,14 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
   }
 
   const porCategoria = useMemo(() => {
-    const m = (re: RegExp) => produtos.filter((p) => re.test(p.categoria));
+    // Pelo tipo da categoria (perfil); cache antigo sem perfil cai no nome da categoria.
+    const m = (perfil: string, re: RegExp) => produtos.filter((p) => (p.perfil ? p.perfil === perfil : re.test(p.categoria)));
     return {
-      tecidos: m(/^tecido/i).filter((p) => !p.metadata?.eh_forro),
-      forros: m(/^tecido/i).filter((p) => Boolean(p.metadata?.eh_forro)),
-      trilhos: m(/^trilho/i),
-      persianas: m(/^persiana/i),
-      maoObra: m(/^m[aã]o de obra/i),
+      tecidos: m('TECIDO', /^tecido/i).filter((p) => !p.metadata?.eh_forro),
+      forros: m('TECIDO', /^tecido/i).filter((p) => Boolean(p.metadata?.eh_forro)),
+      trilhos: m('TRILHO', /^trilho/i),
+      persianas: m('PERSIANA', /^persiana/i),
+      maoObra: m('CONFECCAO', /^m[aã]o de obra/i),
       controles: produtos.filter((p) => Number(p.metadata?.canais) > 0).sort((a, b) => Number(a.metadata.canais) - Number(b.metadata.canais)),
     };
   }, [produtos]);

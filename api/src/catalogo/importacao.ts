@@ -1,8 +1,9 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { d, MARKUP_PADRAO_PCT, PRODUTOS_SEED, precoVendaSugerido } from '@sistema/motor-calculo';
 import type { Banco } from '../db/conexao.js';
-import { categoriasProduto, historicoPrecosProduto, precosBarraTrilho, produtos } from '../db/schema.js';
+import { historicoPrecosProduto, precosBarraTrilho, produtos } from '../db/schema.js';
 import { parametro } from './parametros.js';
+import { carregarCategorias, markupDe } from './categorias.js';
 import {
   decodificarTexto, ErroPlanilha, escreverXlsx, lerCsv, lerXlsx, type Celula,
 } from '../planilhas/xlsx.js';
@@ -15,7 +16,9 @@ import {
  * - Aba "Barras de trilho": SKU, Tamanho (m), Custo, Venda (tabela por barra, 1 a 6 m).
  * - Nada é apagado: célula vazia mantém o valor atual; produto não listado fica como está.
  * - Venda vazia em produto novo, em barra, ou em produto existente cujo custo mudou =
- *   sugestão pelo markup padrão (100%: venda = 2x custo). Custo igual e venda vazia = mantém a venda.
+ *   sugestão pelo markup DA CATEGORIA do produto (Gabriel, 27/11/2026). Custo igual e venda vazia = mantém a venda.
+ * - Categoria: aceita o caminho ("Persianas > Rolo > Double Vision"), só a subcategoria
+ *   ("Double Vision") ou o id. Produto novo precisa de categoria final (sem subcategorias).
  * - Primeiro gera a prévia (nada gravado); depois aplica. Toda importação aplicada
  *   guarda o "antes e depois" para poder ser desfeita.
  */
@@ -29,7 +32,7 @@ type Unidade = typeof UNIDADES[number];
 const RE_SKU = /^[A-Z0-9][A-Z0-9._-]{1,29}$/;
 
 /** Códigos fixos que o cálculo usa sozinho (serviços, acessórios, confecção). Tecidos e persianas são escolhidos pelo vendedor. */
-const PREFIXO_CATEGORIA: Record<string, number> = { TRI: 2, DES: 3, FIX: 4, MDO: 5, ACP: 7, MOT: 8, SRV: 9 };
+const PREFIXO_CATEGORIA: Record<string, number> = { TRI: 2, DES: 3, FIX: 4, MDO: 5, ACP: 31, MOT: 8, SRV: 9 };
 export const SKUS_FIXOS = PRODUTOS_SEED.filter((p) => PREFIXO_CATEGORIA[p.sku.slice(0, 3)] !== undefined);
 
 // ------------------------------------------------------------------ leitura do arquivo
@@ -150,7 +153,7 @@ export type ItemPrevia = {
   acao: AcaoPrevia; mudancas: string[]; erros: string[]; avisos: string[];
 };
 export type ResumoPrevia = { criar: number; atualizar: number; semMudanca: number; ignoradas: number; erros: number };
-export type Previa = { arquivo: string; itens: ItemPrevia[]; resumo: ResumoPrevia; markupPct: string };
+export type Previa = { arquivo: string; itens: ItemPrevia[]; resumo: ResumoPrevia; markupPct: string; markupPorCategoria: boolean };
 
 type DadosProduto = { nome: string; categoriaId: number; unidadeMedida: Unidade; corColecao: string | null; custoUnitario: string; precoVendaUnitario: string };
 type Operacao =
@@ -166,14 +169,19 @@ const ROTULO: Record<keyof DadosProduto, string> = {
 
 export async function analisar(db: Exec, lojaId: string, arquivo: string, lido: Lido, travar = false): Promise<{ previa: Previa; operacoes: Operacao[] }> {
   const markupPct = (await parametro(db as Banco, lojaId, 'MARKUP_PADRAO_PCT')) ?? MARKUP_PADRAO_PCT;
-  const categorias = await db.select().from(categoriasProduto).orderBy(asc(categoriasProduto.ordemExibicao));
-  const nomeCategoria = new Map(categorias.map((c) => [c.id, c.nome]));
-  const ehTrilho = (id: number) => /^trilho/i.test(nomeCategoria.get(id) ?? '');
+  const categorias = await carregarCategorias(db, lojaId);
+  const nomeCategoria = new Map(categorias.map((c) => [c.id, c.caminho]));
+  const ehTrilho = (id: number) => categorias.find((c) => c.id === id)?.trilho ?? false;
+  const markupCat = (id: number) => markupDe(categorias, id, markupPct);
+  const ehFinal = (id: number) => categorias.some((c) => c.id === id && !c.temSubcategorias);
   const acharCategoria = (t: string) => {
     const n = norm(t);
     if (/^\d+$/.test(n)) return categorias.find((c) => c.id === Number(n));
-    return categorias.find((c) => norm(c.nome) === n)
-      ?? categorias.find((c) => norm(c.nome).startsWith(n) || n.startsWith(norm(c.nome)))
+    // Caminho completo ou o fim do caminho; empate: a categoria final ganha ("Rolo" = Persianas › Rolo › Rolo).
+    const iguais = categorias.filter((c) => norm(c.caminho) === n || norm(c.nome) === n || norm(c.caminho).endsWith(` ${n}`));
+    const melhor = (l: typeof categorias) => l.find((c) => norm(c.caminho) === n) ?? l.find((c) => !c.temSubcategorias) ?? l[0];
+    if (iguais.length) return melhor(iguais);
+    return melhor(categorias.filter((c) => norm(c.nome).startsWith(n) || n.startsWith(norm(c.nome))))
       ?? categorias.find((c) => norm(c.nome).split(' ')[0] === n.split(' ')[0]);
   };
 
@@ -212,7 +220,7 @@ export async function analisar(db: Exec, lojaId: string, arquivo: string, lido: 
     }
     if (l.categoria) {
       const c = acharCategoria(l.categoria.texto);
-      if (!c) it.erros.push(`Categoria "${l.categoria.texto}" não existe. Use uma destas: ${categorias.map((x) => x.nome).join(', ')}.`);
+      if (!c) it.erros.push(`Categoria "${l.categoria.texto}" não existe. Use uma destas: ${categorias.filter((x) => !x.temSubcategorias).map((x) => x.caminho).join(', ')}.`);
       else novo.categoriaId = c.id;
     }
     if (l.unidade) {
@@ -251,17 +259,19 @@ export async function analisar(db: Exec, lojaId: string, arquivo: string, lido: 
       };
       if (!dados.nome) it.erros.push('Produto novo: preencha o Nome.');
       if (!dados.categoriaId || !nomeCategoria.has(dados.categoriaId)) it.erros.push('Produto novo: preencha a Categoria.');
+      else if (!ehFinal(dados.categoriaId)) it.erros.push(`Produto novo: escolha a subcategoria de ${nomeCategoria.get(dados.categoriaId)} (ex.: ${categorias.filter((c) => c.paiId === dados.categoriaId).map((c) => c.nome).slice(0, 3).join(', ')}).`);
       if (!dados.unidadeMedida) it.erros.push('Produto novo: preencha a Unidade (M2, ML, UN ou PC).');
       if (!dados.custoUnitario) it.erros.push('Produto novo: preencha o Custo.');
       if (it.erros.length) continue;
       if (!dados.precoVendaUnitario) {
-        dados.precoVendaUnitario = precoVendaSugerido(dados.custoUnitario!, markupPct).toFixed(4);
-        it.avisos.push(`Venda vazia: calculada pelo markup padrão de ${Number(markupPct)}% (${brl(dados.precoVendaUnitario)}).`);
+        const m = markupCat(dados.categoriaId!);
+        dados.precoVendaUnitario = precoVendaSugerido(dados.custoUnitario!, m).toFixed(4);
+        it.avisos.push(`Venda vazia: calculada pelo markup da categoria, ${Number(m)}% (${brl(dados.precoVendaUnitario)}).`);
       }
       it.nome = dados.nome!;
       it.acao = 'CRIAR';
       it.mudancas.push(`Novo produto em ${nomeCategoria.get(dados.categoriaId!)} (${dados.unidadeMedida}): custo ${brl(dados.custoUnitario)}, venda ${brl(dados.precoVendaUnitario)}`);
-      if (!fixo && !ehTrilho(dados.categoriaId!) && [1, 6, 8].includes(dados.categoriaId!)) {
+      if (!fixo && ['PERSIANA', 'TECIDO', 'MOTORIZACAO'].includes(categorias.find((c) => c.id === dados.categoriaId)?.perfil ?? '')) {
         it.avisos.push('Depois confira os dados técnicos na tela do produto (ex.: largura do rolo, medidas máximas, canais).');
       }
       operacoes.push({ tipo: 'CRIAR_PRODUTO', sku, dados: dados as DadosProduto, metadata: fixo?.metadata ?? {} });
@@ -289,15 +299,20 @@ export async function analisar(db: Exec, lojaId: string, arquivo: string, lido: 
         : k === 'categoriaId' ? nomeCategoria.get(v as number) ?? String(v) : v == null || v === '' ? '(vazio)' : String(v));
       it.mudancas.push(`${ROTULO[k]}: ${fmt(a)} → ${fmt(n)}`);
     }
-    // Custo mudou e a coluna Venda veio vazia: recalcula a venda pelo markup padrão (decisão do Gabriel, 27/11/2026).
+    if (depois.categoriaId !== undefined && !ehFinal(depois.categoriaId)) {
+      it.erros.push(`Escolha a subcategoria de ${nomeCategoria.get(depois.categoriaId)}.`);
+      continue;
+    }
+    // Custo mudou e a coluna Venda veio vazia: recalcula a venda pelo markup da categoria (decisões do Gabriel, 27/11/2026).
     if (depois.custoUnitario && !l.venda) {
-      const sugerida = precoVendaSugerido(depois.custoUnitario, markupPct).toFixed(4);
+      const m = markupCat(depois.categoriaId ?? atual.categoriaId);
+      const sugerida = precoVendaSugerido(depois.custoUnitario, m).toFixed(4);
       if (!d(sugerida).eq(d(atual.precoVendaUnitario))) {
         antes.precoVendaUnitario = atual.precoVendaUnitario;
         depois.precoVendaUnitario = sugerida;
         it.mudancas.push(`Venda: ${brl(atual.precoVendaUnitario)} → ${brl(sugerida)}`);
       }
-      it.avisos.push(`Custo mudou e a coluna Venda está vazia: venda recalculada pelo markup padrão de ${Number(markupPct)}% (${brl(sugerida)}).`);
+      it.avisos.push(`Custo mudou e a coluna Venda está vazia: venda recalculada pelo markup da categoria, ${Number(m)}% (${brl(sugerida)}).`);
     }
     if (!it.mudancas.length) { it.acao = 'SEM_MUDANCA'; continue; }
     it.acao = 'ATUALIZAR';
@@ -343,8 +358,9 @@ export async function analisar(db: Exec, lojaId: string, arquivo: string, lido: 
       if ('erro' in v) { it.erros.push(`Venda: ${v.erro}.`); continue; }
       venda = v.valor;
     } else {
-      venda = precoVendaSugerido(custo.valor, markupPct).toFixed(4);
-      it.avisos.push(`Venda vazia: calculada pelo markup padrão de ${Number(markupPct)}% (${brl(venda)}).`);
+      const m = markupCat(cat);
+      venda = precoVendaSugerido(custo.valor, m).toFixed(4);
+      it.avisos.push(`Venda vazia: calculada pelo markup da categoria, ${Number(m)}% (${brl(venda)}).`);
     }
     const antes = atual ? barrasAtuais.get(`${atual.id}:${tamanho}`) ?? null : null;
     if (antes && d(antes.custo).eq(d(custo.valor)) && d(antes.venda).eq(d(venda))) { it.acao = 'SEM_MUDANCA'; continue; }
@@ -370,7 +386,7 @@ export async function analisar(db: Exec, lojaId: string, arquivo: string, lido: 
     else if (it.acao === 'IGNORADA') resumo.ignoradas++;
     else resumo.erros++;
   }
-  return { previa: { arquivo, itens, resumo, markupPct }, operacoes };
+  return { previa: { arquivo, itens, resumo, markupPct, markupPorCategoria: true }, operacoes };
 }
 
 // ------------------------------------------------------------------ aplicar
@@ -523,9 +539,9 @@ const num = (v: string | null | undefined) => (v == null ? null : Number(d(v).to
  * mais as linhas em branco dos códigos fixos que o cálculo usa e ainda não
  * existem (serviços SRV, acessórios, confecção), e a tabela de barras de cada trilho.
  */
-export async function planilhaPrecos(db: Banco): Promise<Buffer> {
-  const categorias = await db.select().from(categoriasProduto).orderBy(asc(categoriasProduto.ordemExibicao));
-  const nomeCat = new Map(categorias.map((c) => [c.id, c.nome]));
+export async function planilhaPrecos(db: Banco, lojaId: string): Promise<Buffer> {
+  const categorias = await carregarCategorias(db, lojaId);
+  const nomeCat = new Map(categorias.map((c) => [c.id, c.caminho.replace(/ › /g, ' > ')]));
   const lista = await db.select().from(produtos).where(eq(produtos.ativo, true));
   const ordem = new Map(categorias.map((c, i) => [c.id, i]));
   lista.sort((a, b) => (ordem.get(a.categoriaId)! - ordem.get(b.categoriaId)!) || a.sku.localeCompare(b.sku));
@@ -536,7 +552,7 @@ export async function planilhaPrecos(db: Banco): Promise<Buffer> {
   for (const p of lista) linhasProdutos.push([p.sku, p.nome, nomeCat.get(p.categoriaId) ?? '', p.unidadeMedida, p.corColecao, num(p.custoUnitario), num(p.precoVendaUnitario)]);
   for (const p of faltando) linhasProdutos.push([p.sku, p.nome, nomeCat.get(PREFIXO_CATEGORIA[p.sku.slice(0, 3)]!) ?? '', p.unidade, null, null, null]);
 
-  const trilhos = lista.filter((p) => /^trilho/i.test(nomeCat.get(p.categoriaId) ?? ''));
+  const trilhos = lista.filter((p) => categorias.find((c) => c.id === p.categoriaId)?.trilho);
   const barras = trilhos.length
     ? await db.select().from(precosBarraTrilho).where(inArray(precosBarraTrilho.produtoId, trilhos.map((t) => t.id)))
     : [];
@@ -558,7 +574,8 @@ export async function planilhaPrecos(db: Banco): Promise<Buffer> {
     ['Regras'],
     ['• O SKU identifica o produto. SKU que já existe é atualizado; SKU novo é cadastrado.'],
     ['• Célula vazia mantém o valor atual. A importação nunca apaga produtos.'],
-    ['• Venda vazia: produto novo, barra e produto cujo custo mudou recebem a venda pelo markup padrão (venda = 2x o custo). Se o custo não mudou, a venda atual fica.'],
+    ['• Venda vazia: produto novo, barra e produto cujo custo mudou recebem a venda pelo markup da categoria (lista abaixo). Se o custo não mudou, a venda atual fica.'],
+    ['• Categoria: escreva como na lista abaixo (ex.: "Persianas > Rolo > Double Vision") ou só o último nome ("Double Vision"). Persiana nova precisa da subcategoria.'],
     ['• Valores em reais, com vírgula nos centavos (ex.: 1150,00). Até 4 casas decimais.'],
     ['• Linha de produto novo sem custo é ignorada (as linhas de SRV, MOT, ACP etc. em branco são os códigos que o orçamento usa; preencha para ativar).'],
     ['• Para o trilho ser cobrado por barra, preencha os 6 tamanhos. Até lá, ele é cobrado por metro.'],
@@ -568,8 +585,8 @@ export async function planilhaPrecos(db: Banco): Promise<Buffer> {
     ['Unidades'],
     ['M2 = metro quadrado · ML = metro linear · UN = unidade · PC = peça'],
     [''],
-    ['Categorias'],
-    ...categorias.map((c) => [c.nome]),
+    ['Categorias (markup = venda sugerida sobre o custo)'],
+    ...categorias.filter((c) => !c.temSubcategorias).map((c) => [`${nomeCat.get(c.id)}   (markup ${c.markupEfetivo}%)`]),
   ];
 
   return escreverXlsx([

@@ -11,6 +11,7 @@ import { parametro } from '../catalogo/parametros.js';
 import { mensagemErro, termoLike, textoOpcional } from '../cadastros/campos.js';
 import { aplicar, desfazer, lerArquivo, listarImportacoes, planilhaPrecos, analisar } from '../catalogo/importacao.js';
 import { ErroPlanilha } from '../planilhas/xlsx.js';
+import { carregarCategorias, erroCategoriaProduto, markupDe, type CategoriaArvore } from '../catalogo/categorias.js';
 
 /**
  * Catálogo de componentes (especificação v1.1, seções 7 e 13).
@@ -18,7 +19,10 @@ import { ErroPlanilha } from '../planilhas/xlsx.js';
  * - Só o ADMIN cadastra produtos e preenche preços, inclusive a tabela de preço por
  *   tamanho de barra do trilho (1 a 6 m). Toda mudança de preço vai para
  *   `historico_precos_produto` (com `tamanho_m` quando é a tabela de barras).
- * - Preço de venda em branco = sugestão pelo markup padrão (MARKUP_PADRAO_PCT, 100%: venda = 2x custo).
+ * - Preço de venda em branco = sugestão pelo markup DA CATEGORIA do produto (vazio = da categoria
+ *   de cima; nenhuma = MARKUP_PADRAO_PCT, 100%: venda = 2x custo). Gabriel, 27/11/2026.
+ * - Categorias em árvore (4 principais + Serviços, com subcategorias): produto novo só em
+ *   categoria final (sem subcategorias). Ver catalogo/categorias.ts.
  */
 
 const valor = z.union([z.string(), z.number()]).transform((v, ctx) => {
@@ -61,6 +65,21 @@ const filtros = z.object({
   inativos: z.enum(['0', '1']).optional(),
 });
 
+const corpoNovaCategoria = z.object({
+  nome: z.string().trim().min(2, 'Informe o nome').max(80),
+  paiId: z.coerce.number().int().positive(),
+});
+const markupCampo = z.union([z.string(), z.number()]).nullable().transform((v, ctx) => {
+  if (v === null || String(v).trim() === '') return null;
+  const n = Number(String(v).trim().replace('%', '').replace(',', '.'));
+  if (!Number.isFinite(n) || n < 0 || n > 1000) { ctx.addIssue({ code: 'custom', message: 'Markup inválido (0 a 1000%)' }); return z.NEVER; }
+  return n.toFixed(2);
+});
+const corpoEditarCategoria = z.object({
+  nome: z.string().trim().min(2, 'Informe o nome').max(80).optional(),
+  markupPct: markupCampo.optional(),
+});
+
 const iguais = (a: string | null | undefined, b: string | null | undefined) =>
   a == null || b == null ? a == b : d(a).eq(d(b));
 
@@ -68,13 +87,24 @@ export async function rotasCatalogo(app: FastifyInstance) {
   const editar = { preHandler: exigir('catalogo.editar') };
   const editarPrecos = { preHandler: exigir('precos.editar') };
 
-  async function markup(lojaId: string) {
+  async function markupPadrao(lojaId: string) {
     return (await parametro(app.db, lojaId, 'MARKUP_PADRAO_PCT')) ?? MARKUP_PADRAO_PCT;
   }
+  const categorias = (lojaId: string) => carregarCategorias(app.db, lojaId);
 
-  async function categoriaDeTrilho(categoriaId: number) {
-    const [c] = await app.db.select({ nome: categoriasProduto.nome }).from(categoriasProduto).where(eq(categoriasProduto.id, categoriaId));
-    return Boolean(c && /^trilho/i.test(c.nome));
+  /** Junta à linha os dados da categoria (caminho, principal, perfil, markup). */
+  function comCategoria<T extends { categoriaId: number }>(p: T, cats: CategoriaArvore[]) {
+    const c = cats.find((x) => x.id === p.categoriaId);
+    return {
+      ...p,
+      categoria: c?.caminho ?? '',
+      categoriaPrincipalId: c?.principalId ?? null,
+      categoriaPrincipal: c?.principal ?? '',
+      perfil: c?.perfil ?? 'GENERICO',
+      markupPct: c?.markupEfetivo ?? null,
+      // Produto que ficou numa categoria com subcategorias (ex.: persiana antiga sem tipo).
+      faltaSubcategoria: c?.temSubcategorias ?? false,
+    };
   }
 
   /** Esconde custo de quem não tem `custos.ver`. */
@@ -128,19 +158,73 @@ export async function rotasCatalogo(app: FastifyInstance) {
       .where(and(...cond))
       .orderBy(asc(categoriasProduto.ordemExibicao), asc(produtos.sku));
     const barras = await barrasDe(linhas.map((l) => l.id));
-    return { produtos: linhas.map((p) => produtoPublico(req, p, barras.get(p.id) ?? [])) };
+    const cats = await categorias(req.usuario!.lojaId);
+    return { produtos: linhas.map((p) => produtoPublico(req, comCategoria(p, cats), barras.get(p.id) ?? [])) };
   });
 
-  app.get('/api/catalogo/categorias', { preHandler: exigir('catalogo.ver') }, async (req) => ({
-    categorias: (await app.db.select().from(categoriasProduto).orderBy(asc(categoriasProduto.ordemExibicao)))
-      .map((c) => ({ ...c, trilho: /^trilho/i.test(c.nome) })),
-    markupPadraoPct: await markup(req.usuario!.lojaId),
-  }));
+  app.get('/api/catalogo/categorias', { preHandler: exigir('catalogo.ver') }, async (req) => {
+    const cats = await categorias(req.usuario!.lojaId);
+    const verMarkup = pode(req.usuario!, 'custos.ver');
+    return {
+      categorias: verMarkup ? cats : cats.map(({ markupPct: _m, markupEfetivo: _e, markupOrigem: _o, ...c }) => c),
+      markupPadraoPct: verMarkup ? await markupPadrao(req.usuario!.lojaId) : undefined,
+    };
+  });
+
+  /** Nova subcategoria (sempre dentro de uma categoria existente; herda o tipo de cadastro). */
+  app.post('/api/catalogo/categorias', editar, async (req, res) => {
+    const corpo = corpoNovaCategoria.safeParse(req.body);
+    if (!corpo.success) return res.code(400).send({ erro: mensagemErro(corpo.error) });
+    const cats = await categorias(req.usuario!.lojaId);
+    const pai = cats.find((c) => c.id === corpo.data.paiId);
+    if (!pai) return res.code(400).send({ erro: 'Categoria de cima inválida.' });
+    if (pai.nivel >= 2) return res.code(400).send({ erro: 'Máximo de 3 níveis (categoria › subcategoria › tipo).' });
+    if (cats.some((c) => c.paiId === pai.id && c.nome.toLowerCase() === corpo.data.nome.toLowerCase())) {
+      return res.code(409).send({ erro: `Já existe "${corpo.data.nome}" em ${pai.caminho}.` });
+    }
+    const [paiLinha] = await app.db.select().from(categoriasProduto).where(eq(categoriasProduto.id, pai.id));
+    const ordem = Math.max(paiLinha!.ordemExibicao ?? 0, ...cats.filter((c) => c.paiId === pai.id).map((c) => c.ordem)) + 1;
+    const [nova] = await app.db.insert(categoriasProduto).values({
+      nome: corpo.data.nome, paiId: pai.id, tipoGrupo: paiLinha!.tipoGrupo, perfil: paiLinha!.perfil, ordemExibicao: ordem,
+    }).returning({ id: categoriasProduto.id });
+    const produtosNoPai = await app.db.select({ id: produtos.id }).from(produtos).where(eq(produtos.categoriaId, pai.id)).limit(1);
+    return res.code(201).send({
+      id: nova!.id,
+      avisos: produtosNoPai.length ? [`${pai.caminho} já tem produtos: abra cada um e escolha a subcategoria.`] : [],
+    });
+  });
+
+  /** Renomeia e/ou muda o markup. Markup vazio numa subcategoria = usa o da categoria de cima. */
+  app.patch<{ Params: { id: string } }>('/api/catalogo/categorias/:id', editarPrecos, async (req, res) => {
+    const id = Number(req.params.id);
+    const corpo = corpoEditarCategoria.safeParse(req.body);
+    if (!corpo.success) return res.code(400).send({ erro: mensagemErro(corpo.error) });
+    const cats = await categorias(req.usuario!.lojaId);
+    const c = cats.find((x) => x.id === id);
+    if (!c) return res.code(404).send({ erro: 'Categoria não encontrada.' });
+    const mudar: Partial<typeof categoriasProduto.$inferInsert> = {};
+    if (corpo.data.nome !== undefined && corpo.data.nome !== c.nome) {
+      if (c.paiId === null) return res.code(400).send({ erro: 'As categorias principais têm nome fixo.' });
+      if (cats.some((x) => x.paiId === c.paiId && x.id !== c.id && x.nome.toLowerCase() === corpo.data.nome!.toLowerCase())) {
+        return res.code(409).send({ erro: `Já existe "${corpo.data.nome}" nesta categoria.` });
+      }
+      mudar.nome = corpo.data.nome;
+    }
+    if (corpo.data.markupPct !== undefined) {
+      if (corpo.data.markupPct === null && c.paiId === null) return res.code(400).send({ erro: 'Categoria principal precisa de markup.' });
+      mudar.markupPct = corpo.data.markupPct;
+    }
+    if (Object.keys(mudar).length === 0) return { ok: true };
+    await app.db.update(categoriasProduto).set(mudar).where(eq(categoriasProduto.id, id));
+    return { ok: true, categoria: (await categorias(req.usuario!.lojaId)).find((x) => x.id === id) };
+  });
 
   app.get('/api/catalogo/preco-sugerido', editarPrecos, async (req, res) => {
-    const c = valor.safeParse((req.query as { custo?: string }).custo ?? '');
+    const q = req.query as { custo?: string; categoriaId?: string };
+    const c = valor.safeParse(q.custo ?? '');
     if (!c.success) return res.code(400).send({ erro: mensagemErro(c.error) });
-    const m = await markup(req.usuario!.lojaId);
+    const padrao = await markupPadrao(req.usuario!.lojaId);
+    const m = q.categoriaId ? markupDe(await categorias(req.usuario!.lojaId), Number(q.categoriaId), padrao) : padrao;
     return { custo: c.data, markupPct: m, precoVendaSugerido: precoVendaSugerido(c.data, m).toFixed(2) };
   });
 
@@ -152,7 +236,8 @@ export async function rotasCatalogo(app: FastifyInstance) {
       .where(eq(produtos.id, req.params.id));
     if (!p || (!p.ativo && !pode(req.usuario!, 'catalogo.editar'))) return res.code(404).send({ erro: 'Produto não encontrado.' });
     const barras = (await barrasDe([p.id])).get(p.id) ?? [];
-    const resposta: Record<string, unknown> = { produto: produtoPublico(req, p, barras), trilho: await categoriaDeTrilho(p.categoriaId) };
+    const prod = comCategoria(p, await categorias(req.usuario!.lojaId));
+    const resposta: Record<string, unknown> = { produto: produtoPublico(req, prod, barras), trilho: prod.perfil === 'TRILHO' };
     if (pode(req.usuario!, 'precos.editar')) {
       resposta.historico = await app.db.select({
         id: historicoPrecosProduto.id, tamanhoM: historicoPrecosProduto.tamanhoM,
@@ -167,10 +252,10 @@ export async function rotasCatalogo(app: FastifyInstance) {
     return resposta;
   });
 
-  async function validarRefs(categoriaId?: number, fornecedorId?: string | null) {
+  async function validarRefs(lojaId: string, categoriaId?: number, fornecedorId?: string | null) {
     if (categoriaId !== undefined) {
-      const [c] = await app.db.select({ id: categoriasProduto.id }).from(categoriasProduto).where(eq(categoriasProduto.id, categoriaId));
-      if (!c) return 'Categoria inválida.';
+      const e = erroCategoriaProduto(await categorias(lojaId), categoriaId);
+      if (e) return e;
     }
     if (fornecedorId) {
       const [f] = await app.db.select({ id: fornecedores.id }).from(fornecedores).where(eq(fornecedores.id, fornecedorId));
@@ -183,11 +268,11 @@ export async function rotasCatalogo(app: FastifyInstance) {
     const corpo = corpoProduto.safeParse(req.body);
     if (!corpo.success) return res.code(400).send({ erro: mensagemErro(corpo.error) });
     const { motivo, precoVendaUnitario, ...dados } = corpo.data;
-    const erroRef = await validarRefs(dados.categoriaId, dados.fornecedorPadraoId);
+    const erroRef = await validarRefs(req.usuario!.lojaId, dados.categoriaId, dados.fornecedorPadraoId);
     if (erroRef) return res.code(400).send({ erro: erroRef });
     const [existe] = await app.db.select({ id: produtos.id }).from(produtos).where(eq(produtos.sku, dados.sku));
     if (existe) return res.code(409).send({ erro: `Já existe produto com o SKU ${dados.sku}.` });
-    const venda = precoVendaUnitario ?? precoVendaSugerido(dados.custoUnitario, await markup(req.usuario!.lojaId)).toFixed(4);
+    const venda = precoVendaUnitario ?? precoVendaSugerido(dados.custoUnitario, markupDe(await categorias(req.usuario!.lojaId), dados.categoriaId)).toFixed(4);
     const novo = await app.db.transaction(async (tx) => {
       const [p] = await tx.insert(produtos).values({ ...dados, precoVendaUnitario: venda }).returning({ id: produtos.id });
       await tx.insert(historicoPrecosProduto).values({
@@ -204,7 +289,7 @@ export async function rotasCatalogo(app: FastifyInstance) {
     const corpo = corpoEditarProduto.safeParse(req.body);
     if (!corpo.success) return res.code(400).send({ erro: mensagemErro(corpo.error) });
     const { motivo, ...dados } = corpo.data;
-    const erroRef = await validarRefs(dados.categoriaId, dados.fornecedorPadraoId);
+    const erroRef = await validarRefs(req.usuario!.lojaId, dados.categoriaId, dados.fornecedorPadraoId);
     if (erroRef) return res.code(400).send({ erro: erroRef });
     if (dados.sku) {
       const [outro] = await app.db.select({ id: produtos.id }).from(produtos)
@@ -247,8 +332,9 @@ export async function rotasCatalogo(app: FastifyInstance) {
     if (new Set(tamanhos).size !== tamanhos.length) return res.code(400).send({ erro: 'Tamanho de barra repetido.' });
     const [p] = await app.db.select({ id: produtos.id, categoriaId: produtos.categoriaId }).from(produtos).where(eq(produtos.id, req.params.id));
     if (!p) return res.code(404).send({ erro: 'Produto não encontrado.' });
-    if (!(await categoriaDeTrilho(p.categoriaId))) return res.code(400).send({ erro: 'Tabela de barras só vale para produtos da categoria Trilhos e Varões.' });
-    const m = await markup(req.usuario!.lojaId);
+    const cats = await categorias(req.usuario!.lojaId);
+    if (!cats.find((c) => c.id === p.categoriaId)?.trilho) return res.code(400).send({ erro: 'Tabela de barras só vale para produtos da categoria Trilhos e Varões.' });
+    const m = markupDe(cats, p.categoriaId);
 
     const alteracoes = await app.db.transaction(async (tx) => {
       const atuais = new Map((await tx.select().from(precosBarraTrilho).where(eq(precosBarraTrilho.produtoId, p.id)).for('update'))
@@ -310,11 +396,11 @@ export async function rotasCatalogo(app: FastifyInstance) {
   }
 
   /** Planilha com o catálogo atual + códigos fixos que faltam, para preencher e importar. */
-  app.get('/api/catalogo/importacao/planilha', { preHandler: exigir('catalogo.editar') }, async (_req, res) => {
+  app.get('/api/catalogo/importacao/planilha', { preHandler: exigir('catalogo.editar') }, async (req, res) => {
     const hoje = new Date().toISOString().slice(0, 10);
     return res.header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
       .header('content-disposition', `attachment; filename="tabela-precos-${hoje}.xlsx"`)
-      .send(await planilhaPrecos(app.db));
+      .send(await planilhaPrecos(app.db, req.usuario!.lojaId));
   });
 
   /** Prévia: lê a planilha e mostra o que vai mudar, sem gravar nada. */

@@ -91,6 +91,8 @@ export const CONDICOES_PADRAO: Condicoes = {
 
 export type ProdutoCatalogo = {
   id: string; sku: string; nome: string; categoria: string; categoriaId: number; unidade: string;
+  /** Tipo de cadastro da categoria (PERSIANA, TECIDO, TRILHO, CONFECCAO...). Cache antigo pode vir sem. */
+  perfil?: string;
   precoVendaUnitario: string; custoUnitario?: string; metadata: Record<string, unknown>;
   barras: { tamanhoM: number; venda: string; custo?: string }[]; tabelaBarrasCompleta: boolean;
 };
@@ -110,7 +112,7 @@ export async function carregarCatalogo(): Promise<{ produtos: ProdutoCatalogo[];
   }
   // Quem não vê custo calcula com custo 0: no aparelho só o preço de venda vale.
   const base: Produto[] = produtos.map((p) => ({
-    sku: p.sku, nome: p.nome, unidade: p.unidade as Produto['unidade'],
+    sku: p.sku, nome: p.nome, unidade: p.unidade as Produto['unidade'], categoria: p.categoria,
     custoUnitario: p.custoUnitario ?? '0', precoVendaUnitario: p.precoVendaUnitario, metadata: p.metadata,
   }));
   const linhas: LinhaPrecoBarra[] = produtos.flatMap((p) => p.barras.map((b) => ({ sku: p.sku, tamanhoM: String(b.tamanhoM), custo: b.custo ?? '0', venda: b.venda })));
