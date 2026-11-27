@@ -16,7 +16,7 @@ técnicos e dados para a ficha de produção. Implementa as seções 2 a 6 da
 
 ```bash
 npm install
-npm test        # 50 testes (vitest)
+npm test        # 52 testes (vitest)
 npm run build   # gera dist/
 ```
 
@@ -57,7 +57,7 @@ paraJSON(cortina); // strings decimais prontas para API/banco
 | Grandeza | Regra |
 |---|---|
 | Tecido / forro / fita wave (ML) | CEIL ao múltiplo `arredondamentoML` (padrão 0,10) — da especificação |
-| Trilho / varão (ML) | CEIL ao metro inteiro (barra), máx. 6,00 m por barra — decidido |
+| Trilho / varão | Barras de metro inteiro: 6 m quantas couberem + 1 barra com o resto arredondado para cima — decidido |
 | Bando, guia (ML) | CEIL a 0,01 após aplicar o mínimo — confirmado |
 | Área de persiana (M2) | ROUND HALF_UP a 4 casas — da especificação |
 | UN / PC | Inteiros por CEIL (deslizante Wave: par por folha) — da especificação |
@@ -91,10 +91,16 @@ paraJSON(cortina); // strings decimais prontas para API/banco
   metros inteiros, arredondando para cima (1,50 → 2 m; 2,20 → 3 m), barra
   máxima de 6,00 m (metadata `passo_venda_m` padrão 1,00 e `barra_max` padrão
   6,00). Garras, deslizantes e mão de obra usam a medida real do trilho.
-- **S1b — Trilho acima de 6,00 m (suposição).** Cobra a soma das barras com o
-  mesmo arredondamento ao metro (6,10 → 7 m) e gera o alerta
-  `TRILHO_ACIMA_BARRA_MAX` com o número de barras; emenda não é incluída.
-  Aplicado também ao varão.
+- **S1b — Trilho acima de 6,00 m. ✅ DECIDIDO (2026-11-27):** barras de 6 m
+  quantas couberem + 1 barra com o resto arredondado ao metro (6,10 → 6 m + 1 m;
+  12,50 → 2 × 6 m + 1 m). Gera o alerta `TRILHO_ACIMA_BARRA_MAX` com a
+  composição; emenda não é incluída. A composição vai em
+  `especificacaoTecnica.trilho.barras` para compras.
+- **S1c — Preço por tamanho de barra (aguardando tabela).** Se o SKU tiver
+  `precos_barra` na metadata (ex.: `{"1": {"custo": 20, "venda": 55}, ..., "6": {...}}`),
+  cada barra sai numa linha em PC com o preço do seu tamanho. Sem a tabela, o
+  trilho sai em ML (metros totais × preço do ML), como no caso 1 da especificação.
+  O seed não tem a tabela porque os preços por tamanho não foram informados.
 - **S2 — Rapport. ✅ DECIDIDO (2026-11-27):** removido. Os tecidos da loja são
   quase sempre lisos; não há campo de rapport.
 - **S3 — Arredondamento. ✅ CONFIRMADO (2026-11-27).** Ver tabela acima: ML de bando/guia sobe para

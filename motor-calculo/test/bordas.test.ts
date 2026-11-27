@@ -5,6 +5,9 @@ import {
   calcularGarrasTrilho,
   calcularPersiana,
   calcularTecidoML,
+  criarCatalogo,
+  decomporBarras,
+  PRODUTOS_SEED,
   catalogoSeed,
   d,
   ErroEntrada,
@@ -234,12 +237,45 @@ describe('Cortina: deslizantes, garras e trilho', () => {
     expect(codigos(r)).toEqual(['INSTALACAO_FAIXA']);
   });
 
-  it('6,10 m excede a barra máxima: cobra 7 m e alerta 2 barras [S1b]', () => {
+  it('decompõe em barras de 6 m + resto arredondado ao metro', () => {
+    const bar = (l: string) => decomporBarras(d(l), d('6.00'), d('1.00')).map((b) => `${b.quantidade}x${b.tamanho}`);
+    expect(bar('1.50')).toEqual(['1x2']);
+    expect(bar('6.00')).toEqual(['1x6']);
+    expect(bar('6.10')).toEqual(['1x6', '1x1']);
+    expect(bar('8.40')).toEqual(['1x6', '1x3']);
+    expect(bar('12.00')).toEqual(['2x6']);
+    expect(bar('12.50')).toEqual(['2x6', '1x1']);
+  });
+
+  it('6,10 m = barra de 6 m + barra de 1 m, com alerta e sem emenda', () => {
     const r = calcularCortina(cortina({ larguraTrilho: '6.10' }), catalogoSeed);
     expect(qtd(r, 'TRI-002')).toBe('7');
     expect(qtd(r, 'FIX-003')).toBeUndefined();
     expect(codigos(r)).toEqual(['TRILHO_ACIMA_BARRA_MAX', 'INSTALACAO_FAIXA']);
-    expect(r.alertas[0]!.mensagem).toContain('2 barras');
+    expect(r.alertas[0]!.mensagem).toContain('1 barra(s) de 6 m + 1 barra(s) de 1 m');
+    expect((r.especificacaoTecnica.trilho as { barras: unknown }).barras).toEqual([
+      { tamanhoM: '6.00', quantidade: 1 },
+      { tamanhoM: '1.00', quantidade: 1 },
+    ]);
+  });
+
+  it('com tabela de preço por tamanho de barra, cobra cada barra pelo seu preço', () => {
+    const precos_barra = {
+      '1': { custo: '20.00', venda: '55.00' },
+      '2': { custo: '36.00', venda: '100.00' },
+      '6': { custo: '96.00', venda: '270.00' },
+    };
+    const cat = criarCatalogo(
+      PRODUTOS_SEED.map((p) => (p.sku === 'TRI-001' ? { ...p, metadata: { ...p.metadata, precos_barra } } : p)),
+    );
+    const r = calcularCortina(cortina({ confeccao: 'PREGA', larguraTrilho: '6.10', skus: { trilho: 'TRI-001', maoObraTecido: 'MDO-003' } }), cat);
+    const linhas = r.componentes.filter((c) => c.sku === 'TRI-001').map((c) => [c.descricao, c.unidade, c.quantidade.toString(), c.precoTotal.toFixed(2)]);
+    expect(linhas).toEqual([
+      ['Trilho Suico Max Simples - barra 6 m', 'PC', '1', '270.00'],
+      ['Trilho Suico Max Simples - barra 1 m', 'PC', '1', '55.00'],
+    ]);
+    // tamanho sem preço na tabela gera erro claro
+    expect(() => calcularCortina(cortina({ confeccao: 'PREGA', larguraTrilho: '2.50', skus: { trilho: 'TRI-001', maoObraTecido: 'MDO-003' } }), cat)).toThrow(/barra de 3 m/);
   });
 
   it('prega usa deslizantes comuns e mão de obra própria, sem fita wave', () => {

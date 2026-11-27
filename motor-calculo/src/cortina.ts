@@ -236,19 +236,21 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
   }
 
   // ---------- Passo B2: trilho/varão ----------
-  // Vendido por barra em metros inteiros (1,50 -> 2 m; 2,20 -> 3 m), barra máxima 6,00 m.
-  // Sem emenda automática: divisão para instalação é decisão do instalador (Gabriel, 2026-11-27).
+  // Vendido em barras de metro inteiro (1 a 6 m). Até 6 m: 1 barra arredondada para cima
+  // (1,50 -> 2 m; 2,20 -> 3 m). Acima: barras de 6 m quantas couberem + 1 barra com o resto
+  // arredondado (6,10 -> 6 m + 1 m). Sem emenda automática: divisão é decisão do instalador.
   const passoBarra = metaNum(trilho, 'passo_venda_m', '1.00');
   const barraMax = metaNum(trilho, 'barra_max', '6.00');
-  const qTrilho = ceilStep(lTrilhoReal, passoBarra);
-  comps.push(componente(trilho, qTrilho, `Barra: CEIL(MAX(L_trilho ${f2(L)}, mín ${f2(minTrilho)}) / ${f2(passoBarra)}) = ${f2(qTrilho)} ML`));
-  if (L.gt(barraMax)) {
-    // [SUPOSIÇÃO S1b] Acima da barra máxima: cobra a soma das barras (mesmo arredondamento ao metro) e alerta.
-    const numBarras = L.div(barraMax).ceil();
+  const barras = decomporBarras(lTrilhoReal, barraMax, passoBarra);
+  const qTrilho = barras.reduce((s, b) => s.plus(b.tamanho.mul(b.quantidade)), ZERO);
+  const txtBarras = descreverBarras(barras);
+  comps.push(...componentesTrilho(trilho, barras, `Barras: MAX(L_trilho ${f2(L)}, mín ${f2(minTrilho)}) -> ${txtBarras}`));
+  const totalBarras = barras.reduce((s, b) => s + b.quantidade.toNumber(), 0);
+  if (totalBarras > 1) {
     alertas.push({
       codigo: 'TRILHO_ACIMA_BARRA_MAX',
       severidade: 'ATENCAO',
-      mensagem: `Trilho de ${f2(L)}m excede a barra máxima de ${f2(barraMax)}m: serão necessárias ${numBarras.toString()} barras (cobrado ${f2(qTrilho)} m). Emenda não incluída; confirme a divisão com o instalador.`,
+      mensagem: `Trilho de ${f2(L)}m excede a barra máxima de ${f2(barraMax)}m: ${txtBarras} (${f2(qTrilho)} m). Emenda não incluída; confirme a divisão com o instalador.`,
     });
   }
 
@@ -333,7 +335,7 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
     alturaPronta: f2(H),
     numFolhas: N,
     confeccao: e.confeccao,
-    trilho: { sku: trilho.sku, vias: vias.toNumber(), varao: ehVarao },
+    trilho: { sku: trilho.sku, vias: vias.toNumber(), varao: ehVarao, barras: barras.map((b) => ({ tamanhoM: f2(b.tamanho), quantidade: b.quantidade.toNumber() })) },
     tecido: fichaCorte(pTecido, fTecido, tec),
     forro: forro && e.forro ? fichaCorte(catalogo.obter(e.forro.sku), d(e.forro.fator), forro) : undefined,
   });
@@ -359,4 +361,56 @@ function alertaCorte(alertas: Alerta[], rotulo: string, r: ResultadoTecido, p: P
       mensagem: `${rotulo} (${p.sku}) em corte vertical: ${r.numTiras?.toString()} tira(s) com emendas verticais (H_corte ${f2(r.alturaCorte)}m).`,
     });
   }
+}
+
+export interface BarraTrilho {
+  /** Comprimento da barra (m), múltiplo de `passo`. */
+  tamanho: Decimal;
+  quantidade: Decimal;
+}
+
+/**
+ * Decompõe o comprimento em barras comerciais: barras de `barraMax` quantas couberem
+ * e uma barra final com o resto arredondado para cima ao `passo`.
+ * 1,50 -> [2 m]; 6,00 -> [6 m]; 6,10 -> [6 m, 1 m]; 12,50 -> [6 m x2, 1 m].
+ */
+export function decomporBarras(comprimento: Decimal, barraMax: Decimal, passo: Decimal): BarraTrilho[] {
+  const inteiras = comprimento.div(barraMax).floor();
+  const resto = ceilStep(comprimento.minus(inteiras.mul(barraMax)), passo);
+  const out: BarraTrilho[] = [];
+  if (inteiras.gt(0)) out.push({ tamanho: barraMax, quantidade: inteiras });
+  if (resto.gt(0)) out.push({ tamanho: resto, quantidade: new Decimal(1) });
+  return out;
+}
+
+function descreverBarras(barras: BarraTrilho[]): string {
+  return barras.map((b) => `${b.quantidade.toString()} barra(s) de ${b.tamanho.toString()} m`).join(' + ');
+}
+
+type PrecoBarra = { custo: Numerico; venda: Numerico };
+
+/**
+ * Sem tabela `precos_barra` no SKU: 1 linha em ML (total de metros x preço do ML).
+ * Com tabela (ex.: {"1": {"custo": 20, "venda": 55}, ..., "6": {...}}): 1 linha por
+ * tamanho de barra, em PC, com o preço daquele tamanho (barra maior sai mais barata por metro).
+ */
+function componentesTrilho(trilho: Produto, barras: BarraTrilho[], log: string): ComponenteCalculado[] {
+  const tabela = trilho.metadata?.['precos_barra'] as Record<string, PrecoBarra> | undefined;
+  if (!tabela) {
+    const metros = barras.reduce((s, b) => s.plus(b.tamanho.mul(b.quantidade)), ZERO);
+    return [componente(trilho, metros, `${log} = ${f2(metros)} ML`)];
+  }
+  return barras.map((b) => {
+    const chave = b.tamanho.toString();
+    const preco = tabela[chave];
+    if (!preco) throw new ErroEntrada(`SKU ${trilho.sku}: precos_barra sem preço para barra de ${chave} m`);
+    const prodBarra: Produto = {
+      ...trilho,
+      nome: `${trilho.nome} - barra ${chave} m`,
+      unidade: 'PC',
+      custoUnitario: preco.custo,
+      precoVendaUnitario: preco.venda,
+    };
+    return componente(prodBarra, b.quantidade, `${log}: ${b.quantidade.toString()} PC de ${chave} m`);
+  });
 }

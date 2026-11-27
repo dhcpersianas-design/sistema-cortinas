@@ -7,6 +7,8 @@ export {
   calcularDeslizantesWave,
   calcularGarrasTrilho,
   calcularSuportesVarao,
+  decomporBarras,
+  type BarraTrilho,
   SKUS_CORTINA_PADRAO,
   type EntradaCortina,
   type CamadaTecido,
