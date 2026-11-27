@@ -7,6 +7,7 @@ import {
   pgTable, pgEnum, uuid, varchar, text, boolean, timestamp, numeric, integer,
   serial, jsonb, date, char, primaryKey,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 export const perfilUsuario = pgEnum('perfil_usuario_enum', ['ADMIN', 'VENDEDOR']);
 export const unidadeMedida = pgEnum('unidade_medida_enum', ['M2', 'ML', 'UN', 'PC']);
@@ -73,6 +74,80 @@ export const produtos = pgTable('produtos', {
   metadataTecnica: jsonb('metadata_tecnica').$type<Record<string, unknown>>().notNull().default({}),
   ativo: boolean('ativo').default(true),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).defaultNow(),
+  nomeBusca: text('nome_busca').generatedAlwaysAs(sql`f_busca(sku || ' ' || nome || ' ' || COALESCE(cor_colecao, ''))`),
+});
+
+export const historicoPrecosProduto = pgTable('historico_precos_produto', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  produtoId: uuid('produto_id').notNull(),
+  custoAnterior: numeric('custo_anterior', { precision: 12, scale: 4 }),
+  custoNovo: numeric('custo_novo', { precision: 12, scale: 4 }),
+  vendaAnterior: numeric('venda_anterior', { precision: 12, scale: 4 }),
+  vendaNova: numeric('venda_nova', { precision: 12, scale: 4 }),
+  alteradoPor: uuid('alterado_por'),
+  alteradoEm: timestamp('alterado_em', { withTimezone: true }).defaultNow(),
+  tamanhoM: integer('tamanho_m'),
+  motivo: varchar('motivo', { length: 200 }),
+});
+
+export const tipoPessoa = pgEnum('tipo_pessoa_enum', ['PF', 'PJ']);
+
+export const clientes = pgTable('clientes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  lojaId: uuid('loja_id').notNull(),
+  nomeCompleto: varchar('nome_completo', { length: 150 }).notNull(),
+  tipoPessoa: tipoPessoa('tipo_pessoa').default('PF'),
+  cpfCnpj: varchar('cpf_cnpj', { length: 18 }).unique(),
+  telefoneWhatsapp: varchar('telefone_whatsapp', { length: 20 }).notNull(),
+  telefoneSecundario: varchar('telefone_secundario', { length: 20 }),
+  email: varchar('email', { length: 150 }),
+  origemLead: varchar('origem_lead', { length: 60 }),
+  cep: varchar('cep', { length: 10 }),
+  logradouro: varchar('logradouro', { length: 160 }),
+  numero: varchar('numero', { length: 20 }),
+  complemento: varchar('complemento', { length: 100 }),
+  bairro: varchar('bairro', { length: 100 }),
+  cidade: varchar('cidade', { length: 100 }),
+  uf: char('uf', { length: 2 }),
+  tipoImovel: varchar('tipo_imovel', { length: 30 }),
+  obsAcessoInstalacao: text('obs_acesso_instalacao'),
+  dataRegistro: timestamp('data_registro', { withTimezone: true }).defaultNow(),
+  ultimaCompraEm: timestamp('ultima_compra_em', { withTimezone: true }),
+  ultimaInstalacaoEm: timestamp('ultima_instalacao_em', { withTimezone: true }),
+  ativo: boolean('ativo').default(true),
+  vendedorResponsavelId: uuid('vendedor_responsavel_id'),
+  criadoPorId: uuid('criado_por_id'),
+  observacoes: text('observacoes'),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+  nomeBusca: text('nome_busca').generatedAlwaysAs(sql`f_busca(nome_completo)`),
+});
+
+export const CATEGORIAS_FORNECEDOR = ['TECIDO', 'PERSIANA', 'FERRAGEM', 'MOTORIZACAO', 'COSTUREIRA', 'INSTALADOR', 'OUTRO'] as const;
+
+export const fornecedores = pgTable('fornecedores', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  nomeFantasia: varchar('nome_fantasia', { length: 140 }).notNull(),
+  razaoSocial: varchar('razao_social', { length: 160 }),
+  cnpj: varchar('cnpj', { length: 18 }),
+  telefone: varchar('telefone', { length: 20 }),
+  categoria: varchar('categoria', { length: 40 }).notNull(),
+  prazoEntregaDias: integer('prazo_entrega_dias').default(10),
+  ativo: boolean('ativo').default(true),
+  contatoNome: varchar('contato_nome', { length: 120 }),
+  whatsapp: varchar('whatsapp', { length: 20 }),
+  email: varchar('email', { length: 150 }),
+  cep: varchar('cep', { length: 10 }),
+  logradouro: varchar('logradouro', { length: 160 }),
+  numero: varchar('numero', { length: 20 }),
+  complemento: varchar('complemento', { length: 100 }),
+  bairro: varchar('bairro', { length: 100 }),
+  cidade: varchar('cidade', { length: 100 }),
+  uf: char('uf', { length: 2 }),
+  chavePix: varchar('chave_pix', { length: 140 }),
+  observacoes: text('observacoes'),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+  nomeBusca: text('nome_busca').generatedAlwaysAs(sql`f_busca(nome_fantasia || ' ' || COALESCE(razao_social, ''))`),
 });
 
 export const precosBarraTrilho = pgTable('precos_barra_trilho', {
@@ -83,4 +158,7 @@ export const precosBarraTrilho = pgTable('precos_barra_trilho', {
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.produtoId, t.tamanhoM] })]);
 
-export const tabelas = { lojas, parametrosSistema, usuarios, sessoes, categoriasProduto, produtos, precosBarraTrilho };
+export const tabelas = {
+  lojas, parametrosSistema, usuarios, sessoes, categoriasProduto, produtos, precosBarraTrilho,
+  historicoPrecosProduto, clientes, fornecedores,
+};
