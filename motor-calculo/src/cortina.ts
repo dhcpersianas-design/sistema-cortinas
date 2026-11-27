@@ -29,6 +29,10 @@ export interface SkusCortina {
   /** Garra (trilho) ou suporte (varão). */
   fixacao: string;
   instalacao: string;
+  /** Instalação de cortina com trilho acima de 3,00 m (sem tamanho máximo). */
+  instalacaoAcima3m: string;
+  /** Adicional de andaime/escada especial quando H_pronta > 3,00 m. */
+  adicionalPeDireitoAlto: string;
 }
 
 export const SKUS_CORTINA_PADRAO: SkusCortina = {
@@ -41,6 +45,8 @@ export const SKUS_CORTINA_PADRAO: SkusCortina = {
   terminal: 'FIX-001',
   fixacao: 'FIX-002',
   instalacao: 'SRV-001',
+  instalacaoAcima3m: 'SRV-004',
+  adicionalPeDireitoAlto: 'SRV-006',
 };
 
 export interface EntradaCortina {
@@ -231,7 +237,7 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
     alertas.push({
       codigo: 'PE_DIREITO_ALTO',
       severidade: 'ATENCAO',
-      mensagem: `Altura pronta ${f2(H)}m acima de ${f2(limitePD)}m: adicional na mão de obra aplicado. Prever andaime/escada especial na instalação.`,
+      mensagem: `Altura pronta ${f2(H)}m acima de ${f2(limitePD)}m: adicional na mão de obra e adicional de andaime/escada especial incluídos.`,
     });
   }
 
@@ -299,15 +305,13 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
     : calcularGarrasTrilho(L, metaNum(pFix, 'espacamento_m', '0.50'), metaNum(pFix, 'min_un', 2));
   comps.push(componente(pFix, fix.quantidade, fix.log));
 
-  // ---------- Passo B8: instalação ----------
-  const pInst = catalogo.obter(skus.instalacao);
-  comps.push(componente(pInst, new Decimal(1), '1 UN por cortina'));
-  if (L.gt(3)) {
-    alertas.push({
-      codigo: 'INSTALACAO_FAIXA',
-      severidade: 'ATENCAO',
-      mensagem: `Trilho de ${f2(L)}m acima de 3,00m: confira se o serviço de instalação ${pInst.sku} cobre esta faixa de largura.`,
-    });
+  // ---------- Passo B8: instalação (faixas v1.1) ----------
+  // Até 3,00 m: SRV-001. Acima: SRV-004 (sem tamanho máximo; 2x o valor de SRV-001).
+  const acima3 = L.gt(3);
+  const pInst = catalogo.obter(acima3 ? skus.instalacaoAcima3m : skus.instalacao);
+  comps.push(componente(pInst, new Decimal(1), `1 UN por cortina (trilho ${f2(L)}m ${acima3 ? '> 3,00m' : '<= 3,00m'})`));
+  if (peDireitoAlto) {
+    comps.push(componente(catalogo.obter(skus.adicionalPeDireitoAlto), new Decimal(1), `Adicional andaime/escada: H_pronta ${f2(H)}m > ${f2(limitePD)}m`));
   }
 
   // ---------- Alerta de cortineiro ----------

@@ -71,11 +71,11 @@ Consequências no banco:
   arquivo da NF-e/NFS-e, como já previa a v1.1.
 - **Instalação de cortina sem tamanho máximo:** acima de 3,00 m custa 2x a instalação normal.
   No catálogo de exemplo, SRV-004 e SRV-005 viraram uma faixa só (SRV-004, 2x SRV-001,
-  valores fictícios). **Pendente:** o motor de cálculo ainda lança sempre SRV-001; a escolha
-  automática da faixa entra junto com o configurador de orçamento.
+  valores fictícios). O motor de cálculo escolhe a faixa (e o SRV-006 de pé-direito alto) sozinho.
 - **Offline na obra:** a base do PWA já está pronta. Arquitetura em [`offline.md`](offline.md).
 - **Markup padrão de 100%** (venda sugerida = 2x o custo), parâmetro `MARKUP_PADRAO_PCT`.
-  É só a sugestão de preço ao cadastrar/reajustar produto; o semáforo de margem continua 45%/35%.
+  É só a sugestão de preço ao cadastrar/reajustar produto (`precoVendaSugerido` do motor); o semáforo
+  de margem continua 45%/35% (`semaforoMargem` do motor, com os limites lidos do banco).
 - **Status de medição (v1.1):** orçamento ganha `AGUARDANDO_MEDICAO`; no pedido,
   `AGUARDANDO_MEDICAO_FINAL` virou `CONFERENCIA_MEDIDAS` (venda fechada com medida aproximada).
 

@@ -59,6 +59,14 @@ describe('motor de cálculo com o catálogo do banco', () => {
     expect(r.margemBrutaPct).toBe('61.61');
   });
 
+  it('cortina acima de 3,00 m usa a instalação SRV-004 do catálogo do banco (2x)', async () => {
+    const r = (await post(await entrar(app, 'admin@loja.com'), '/api/calculo/cortina', { ...caso1, larguraTrilho: '4.20' })).json();
+    const skus = r.componentes.map((c: { sku: string }) => c.sku);
+    expect(skus).toContain('SRV-004');
+    expect(skus).not.toContain('SRV-001');
+    expect(r.componentes.find((c: { sku: string }) => c.sku === 'SRV-004').precoTotal).toBe('360.00');
+  });
+
   it('entrada inválida volta 400 com a mensagem do motor', async () => {
     const r = await post(await entrar(app, 'admin@loja.com'), '/api/calculo/cortina', { ...caso1, larguraTrilho: '-1' });
     expect(r.statusCode).toBe(400);

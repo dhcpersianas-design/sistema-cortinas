@@ -1,5 +1,5 @@
 import { and, desc, eq, lte, sql } from 'drizzle-orm';
-import { Decimal } from '@sistema/motor-calculo';
+import { LIMITES_SEMAFORO_PADRAO, semaforoMargem, type CorSemaforo } from '@sistema/motor-calculo';
 import type { Banco } from '../db/conexao.js';
 import { parametrosSistema } from '../db/schema.js';
 
@@ -11,14 +11,9 @@ export async function parametro(db: Banco, lojaId: string, chave: string): Promi
   return l?.valor ?? null;
 }
 
-export type CorSemaforo = 'VERDE' | 'AMARELO' | 'VERMELHO';
-
-/** Semáforo de margem (decisão 6): verde >= 45%, amarelo >= 35%, vermelho abaixo. */
+/** Semáforo de margem: regra do motor de cálculo com os limites vigentes do banco. */
 export async function semaforo(db: Banco, lojaId: string, margemPct: string): Promise<CorSemaforo> {
-  const verde = new Decimal((await parametro(db, lojaId, 'SEMAFORO_VERDE_MIN_PCT')) ?? '45');
-  const amarelo = new Decimal((await parametro(db, lojaId, 'SEMAFORO_AMARELO_MIN_PCT')) ?? '35');
-  const m = new Decimal(margemPct);
-  if (m.gte(verde)) return 'VERDE';
-  if (m.gte(amarelo)) return 'AMARELO';
-  return 'VERMELHO';
+  const verdeMinPct = (await parametro(db, lojaId, 'SEMAFORO_VERDE_MIN_PCT')) ?? LIMITES_SEMAFORO_PADRAO.verdeMinPct;
+  const amareloMinPct = (await parametro(db, lojaId, 'SEMAFORO_AMARELO_MIN_PCT')) ?? LIMITES_SEMAFORO_PADRAO.amareloMinPct;
+  return semaforoMargem(margemPct, { verdeMinPct, amareloMinPct }).cor;
 }

@@ -10,3 +10,4 @@ export * from './cortina.js';
 export * from './persiana.js';
 export * from './orcamento.js';
 export * from './precos-barra.js';
+export * from './precificacao.js';

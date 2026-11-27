@@ -7,7 +7,7 @@ construído a partir da *Especificação Técnica ERP Cortinas e Persianas* v1.1
 
 | Pasta | Conteúdo | Estado |
 |---|---|---|
-| [`motor-calculo/`](motor-calculo/README.md) | Motor de cálculo (decimal exato, explosão BOM, alertas técnicos) | Pronto, 58 testes |
+| [`motor-calculo/`](motor-calculo/README.md) | Motor de cálculo (decimal exato, explosão BOM, alertas técnicos) | Pronto, 63 testes |
 | `api/` | API Fastify + PostgreSQL: migrações, login, perfis, catálogo, cálculo | Fundação |
 | `web/` | Next.js + Tailwind (padrão shadcn/ui), PWA: login, painel, equipe, catálogo | Fundação |
 | [`docs/`](docs/decisoes.md) | Decisões da fundação e arquitetura offline | |
