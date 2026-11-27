@@ -53,6 +53,7 @@ export function FichaCliente({ id, admin, onVoltar, onEditar, onAlterado }: Prop
         {whats && <Button asChild><a href={whats} target="_blank" rel="noopener noreferrer">Abrir WhatsApp</a></Button>}
         {c.telefoneWhatsapp && <Button asChild variant="outline"><a href={`tel:${c.telefoneWhatsapp}`}>Ligar</a></Button>}
         <Button variant="outline" onClick={onEditar}>Editar</Button>
+        <Button asChild variant="outline"><a href={`/orcamentos?cliente=${c.id}`}>Novo orçamento</a></Button>
         {admin && !c.pendente && <Button variant="outline" onClick={alternarAtivo}>{c.ativo === false ? 'Reativar' : 'Inativar'}</Button>}
       </div>
 
@@ -107,7 +108,7 @@ export function FichaCliente({ id, admin, onVoltar, onEditar, onAlterado }: Prop
               <CardContent className="flex flex-col gap-2 text-sm">
                 {h.orcamentos.map((o) => (
                   <div key={o.id} className="flex flex-wrap justify-between gap-2">
-                    <span>{o.codigo} v{o.versao} · {formatarData(o.dataCriacao)} · {rotulo(o.status)}</span>
+                    <a className="underline" href={`/orcamentos?o=${o.id}`}>{o.codigo} v{o.versao} · {formatarData(o.dataCriacao)} · {rotulo(o.status)}</a>
                     <span className="tabular-nums">{dinheiro(o.valorTotal)}</span>
                   </div>
                 ))}

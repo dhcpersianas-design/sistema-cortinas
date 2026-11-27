@@ -24,15 +24,18 @@ describe('migrações e seed da especificação', () => {
     expect(Object.fromEntries(rows.map((r) => [r.chave, r.valor]))).toEqual({
       ALERTA_LIMITE_MEI_PCT: '80.0000',
       ALIQUOTA_IMPOSTO_VENDA_PCT: '0.0000',
+      GARANTIA_MESES: '12.0000',
       LIMITE_FATURAMENTO_ANUAL_MEI: '110000.0000',
       MARKUP_PADRAO_PCT: '100.0000',
+      PRAZO_ENTREGA_DIAS_UTEIS: '14.0000',
       SEMAFORO_AMARELO_MIN_PCT: '35.0000',
       SEMAFORO_VERDE_MIN_PCT: '45.0000',
+      VALIDADE_ORCAMENTO_DIAS: '15.0000',
     });
   });
 
-  it('catálogo de exemplo tem os 29 SKUs (instalação de cortina em 2 faixas)', async () => {
-    expect(await contar('SELECT COUNT(*) n FROM produtos')).toBe(29);
+  it('catálogo de exemplo tem os 32 SKUs (instalação de cortina em 2 faixas; controles de 1, 6 e 16 canais)', async () => {
+    expect(await contar('SELECT COUNT(*) n FROM produtos')).toBe(32);
   });
 
   it('status de medição da v1.1: AGUARDANDO_MEDICAO (orçamento) e CONFERENCIA_MEDIDAS (pedido)', async () => {

@@ -10,7 +10,7 @@ const MODULOS: Modulo[] = [
   { titulo: 'Catálogo', descricao: 'Produtos, preços e tabela de barras do trilho', permissao: 'catalogo.ver', href: '/catalogo' },
   { titulo: 'Clientes', descricao: 'Cadastro, histórico e pesquisa por nome, telefone ou produto (funciona offline)', permissao: 'clientes.ver', href: '/clientes' },
   { titulo: 'Fornecedores', descricao: 'Fábricas, ateliês e instaladores terceirizados', permissao: 'fornecedores.ver', href: '/fornecedores' },
-  { titulo: 'Orçamentos', descricao: 'Configurador por ambiente com cálculo automático', permissao: 'orcamentos.proprios' },
+  { titulo: 'Orçamentos', descricao: 'Configurador por ambiente, proposta em PDF e WhatsApp (funciona offline)', permissao: 'orcamentos.proprios', href: '/orcamentos' },
   { titulo: 'Medições', descricao: 'Medição técnica no local, gera a versão v2', permissao: 'medicoes.proprias' },
   { titulo: 'Pedidos', descricao: 'Pedidos aprovados e andamento', permissao: 'pedidos.proprios' },
   { titulo: 'Compras e produção', descricao: 'Ordens por fornecedor e ficha de corte', permissao: 'compras.gerenciar' },

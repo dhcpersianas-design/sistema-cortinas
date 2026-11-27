@@ -11,3 +11,4 @@ export * from './persiana.js';
 export * from './orcamento.js';
 export * from './precos-barra.js';
 export * from './precificacao.js';
+export * from './configurador.js';

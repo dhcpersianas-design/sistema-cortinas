@@ -1,4 +1,4 @@
--- Catálogo FICTÍCIO da especificação (seções 7 e 8): 29 SKUs em 9 categorias (SRV-004/005 viraram uma faixa só).
+-- Catálogo FICTÍCIO da especificação (seções 7 e 8): 32 SKUs em 9 categorias (SRV-004/005 viraram uma faixa só; controles de 1, 6 e 16 canais).
 -- Só para desenvolvimento, testes e demonstração. Não rodar no banco de produção.
 -- Idempotente: SKUs já existentes não são alterados.
 INSERT INTO produtos (sku, categoria_id, nome, unidade_medida, custo_unitario, preco_venda_unitario, metadata_tecnica) VALUES
@@ -34,6 +34,10 @@ INSERT INTO produtos (sku, categoria_id, nome, unidade_medida, custo_unitario, p
   ('MOT-001', 8, 'Motor Tubular X Bivolt RF 6Nm',  'PC', 480.00, 1150.00, '{"torque_nm": 6, "tubo_compat": ["38mm", "45mm"]}'),
   ('MOT-002', 8, 'Controle Remoto RF 5 Canais',    'PC',  75.00,  190.00, '{"canais": 5, "escopo": "AMBIENTE_OU_ORCAMENTO"}'),
   ('MOT-003', 8, 'Hub Wi-Fi Alexa / Google Home',  'PC', 190.00,  450.00, '{"escopo": "ORCAMENTO"}'),
+  -- Controles de 1, 6 e 16 canais (Gabriel, 27/11/2026: cada canal aciona 1 peça). Valores fictícios.
+  ('MOT-004', 8, 'Controle Remoto RF 1 Canal',     'PC',  55.00,  140.00, '{"canais": 1, "escopo": "AMBIENTE_OU_ORCAMENTO"}'),
+  ('MOT-005', 8, 'Controle Remoto RF 6 Canais',    'PC',  85.00,  210.00, '{"canais": 6, "escopo": "AMBIENTE_OU_ORCAMENTO"}'),
+  ('MOT-006', 8, 'Controle Remoto RF 16 Canais',   'PC', 120.00,  290.00, '{"canais": 16, "escopo": "AMBIENTE_OU_ORCAMENTO"}'),
   -- 9. Servicos de Instalacao
   ('SRV-001', 9, 'Instalacao Cortina ate 3,00m',   'UN',  80.00,  180.00, '{"tipo": "CORTINA"}'),
   ('SRV-002', 9, 'Instalacao Persiana Manual',     'PC',  60.00,  140.00, '{"tipo": "PERSIANA_MANUAL"}'),

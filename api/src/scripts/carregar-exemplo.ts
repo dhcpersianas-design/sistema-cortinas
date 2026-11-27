@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { conectar } from '../db/conexao.js';
 import { lerConfig } from '../config.js';
 
-/** Carrega os 29 SKUs fictícios da especificação. Só para desenvolvimento/demonstração. */
+/** Carrega os 32 SKUs fictícios da especificação. Só para desenvolvimento/demonstração. */
 export const ARQUIVO_EXEMPLO = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'db', 'exemplo', 'produtos-exemplo.sql');
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

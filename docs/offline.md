@@ -31,6 +31,19 @@ precisa usar o sistema na obra mesmo sem internet.
   instalação do app, para abrir na obra mesmo sem visita anterior.
 - Histórico de compras na ficha só aparece com internet.
 
+## Orçamentos offline (pronto no configurador)
+
+- Ao abrir **Orçamentos** com internet, o app envia o que estava pendente e baixa os orçamentos abertos do
+  vendedor (`GET /api/orcamentos/pacote-offline`) para o IndexedDB (`web/lib/orcamentos-offline.ts`).
+- Sem internet: criar orçamento, incluir/editar itens, ajustar componentes e mudar condições. O cálculo
+  roda no aparelho com o mesmo motor da API e o catálogo em cache (marcado como "provisório"). Quem não
+  vê custo calcula só o preço; o semáforo aparece depois de sincronizar.
+- Cada gravação manda o orçamento inteiro (`PUT /api/orcamentos/:id`) com um `idOperacao`: reenviar não
+  aplica duas vezes. O servidor recalcula, rateia e confere a margem, e avisa se o valor mudou.
+- Conflito (o mesmo orçamento alterado em outro lugar) vira **nova versão**, nunca sobrescreve.
+- Precisam de internet: liberar com a senha do ADMIN, enviar a proposta, gerar PDF e link do WhatsApp,
+  e ver o histórico.
+
 ## Próximas etapas (com medição e orçamento, Fase 2)
 
 0. **Pacote para o dia**: ao abrir com internet, o app baixa agenda do dia, clientes,
