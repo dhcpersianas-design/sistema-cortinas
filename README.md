@@ -35,6 +35,12 @@ Preços do trilho por barra: na tela **Catálogo**, abra o trilho e preencha a t
 (fica no histórico de preços). A planilha `motor-calculo/dados/precos-barra-trilho.csv` continua
 servindo para importação em lote com `npm run precos-barra:importar`.
 
+## Colocar no ar (VPS com Easypanel)
+
+`Dockerfile` na raiz gera uma imagem única (site + API). Banco: serviço PostgreSQL do Easypanel.
+Migrações e o primeiro ADMIN são criados sozinhos ao iniciar; backup diário com tela para baixar.
+Detalhes e variáveis em [`docs/deploy-easypanel.md`](docs/deploy-easypanel.md).
+
 ## Testes
 
 ```bash

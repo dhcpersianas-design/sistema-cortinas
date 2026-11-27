@@ -22,6 +22,9 @@ export default async function LayoutApp({ children }: { children: React.ReactNod
             {u.permissoes.includes('usuarios.gerenciar') && (
               <Link href="/equipe" className="rounded-md px-2 py-1 hover:bg-muted">Equipe</Link>
             )}
+            {u.permissoes.includes('backups.gerenciar') && (
+              <Link href="/backups" className="rounded-md px-2 py-1 hover:bg-muted">Backups</Link>
+            )}
           </nav>
           <span className="hidden text-sm sm:inline">{u.nome}</span>
           <Badge className="hidden sm:inline-flex">{u.perfil === 'ADMIN' ? 'Administrador' : 'Vendedor'}</Badge>
