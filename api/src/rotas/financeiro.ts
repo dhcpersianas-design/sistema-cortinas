@@ -8,7 +8,11 @@ import { mensagemErro, termoLike, textoOpcional } from '../cadastros/campos.js';
 import { parametro } from '../catalogo/parametros.js';
 import {
   ErroFinanceiro, estornarRecebimento, FORMAS_RECEBIMENTO, inserirLancamento, contaPadrao, receberDoCliente, rotinaFinanceira,
+<<<<<<< HEAD
   situacaoMei, NOME_FORMA, taxaDe, BANDEIRAS, simularCartao,
+=======
+  situacaoMei, NOME_FORMA, taxaDe, BANDEIRAS, NOME_BANDEIRA, simularCartao,
+>>>>>>> origin/claude/project-thread-vfblqz
 } from '../financeiro/servico.js';
 import { ErroPedido, lerPedido, pedidoNoEscopo, registrarEvento } from '../pedidos/servico.js';
 import { hojeLoja } from '../pedidos/dias-uteis.js';
@@ -338,7 +342,11 @@ export async function rotasFinanceiro(app: FastifyInstance) {
     }).safeParse(req.query);
     if (!q.success) return res.code(400).send({ erro: mensagemErro(q.error) });
     const r = await simularCartao(app.db, req.usuario!.lojaId, d(q.data.valor), q.data.forma, q.data.parcelas, q.data.bandeira);
+<<<<<<< HEAD
     if (pode(req.usuario!, 'financeiro.gerenciar')) return r;
+=======
+    if (pode(req.usuario!, 'financeiro.gerenciar')) return { ...r, bandeira: NOME_BANDEIRA[q.data.bandeira] };
+>>>>>>> origin/claude/project-thread-vfblqz
     return { repasse: r.repasse, cobrado: r.cobrado, parcelas: r.parcelas, valorParcela: r.valorParcela };
   });
 

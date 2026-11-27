@@ -41,7 +41,11 @@ export function Configuracoes() {
 
 type P = { c: Config; onFeito: (m: string) => void; onErro: (e: unknown) => void };
 
+<<<<<<< HEAD
 const GRUPOS_TAXA: [string, string][] = [['TODAS', 'PIX, dinheiro e boleto'], ['VISA_MASTER', 'Cartão (tabela Visa/Mastercard, vale para todas as bandeiras)']];
+=======
+const GRUPOS_TAXA: [string, string][] = [['TODAS', 'PIX, dinheiro e boleto'], ['VISA_MASTER', 'Visa / Mastercard'], ['ELO_AMEX', 'Elo / Amex']];
+>>>>>>> origin/claude/project-thread-vfblqz
 
 function Taxas({ c, onFeito, onErro }: P) {
   const repasse = Number(c.parametros.find((p) => p.chave === 'REPASSAR_TAXA_CARTAO')?.valor ?? 0) > 0;
@@ -51,7 +55,11 @@ function Taxas({ c, onFeito, onErro }: P) {
       <CardContent className="space-y-3 text-sm">
         <p className="text-muted-foreground">
           {repasse
+<<<<<<< HEAD
             ? 'No crédito a taxa vai embutida no valor cobrado do cliente (Regras do negócio): a loja recebe o mesmo que no PIX e a margem do orçamento não muda. No débito o cliente paga o preço cheio e a taxa sai da margem. '
+=======
+            ? 'A taxa do cartão está sendo embutida no valor cobrado do cliente (Regras do negócio): a loja recebe o mesmo que no PIX e a margem do orçamento não muda. '
+>>>>>>> origin/claude/project-thread-vfblqz
             : 'A taxa entra no cálculo da margem do orçamento e no valor que realmente cai na conta. '}
           &quot;Dias para cair&quot; = em quantos dias o dinheiro chega (no parcelado, cada parcela cai 30 dias depois da anterior; com taxa de antecipação, cai tudo junto).
         </p>

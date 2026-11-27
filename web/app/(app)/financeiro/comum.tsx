@@ -38,29 +38,49 @@ export function situacao(l: Lancamento): { texto: string; classe: string } {
 export const dataCurta = (v?: string | null) => (v ? v.slice(0, 10).split('-').reverse().join('/') : '');
 
 export const FORMAS_CARTAO_WEB = ['DEBITO', 'CREDITO_AVISTA', 'CREDITO_PARCELADO'];
+<<<<<<< HEAD
+=======
+export const BANDEIRAS_WEB: [string, string][] = [['VISA_MASTER', 'Visa / Mastercard'], ['ELO_AMEX', 'Elo / Amex']];
+>>>>>>> origin/claude/project-thread-vfblqz
 
 type Simulacao = { repasse: boolean; cobrado: string; parcelas: number; valorParcela: string; taxaPct?: string };
 
 /**
+<<<<<<< HEAD
  * Parcelas e "quanto passar na maquininha" (crédito com a taxa embutida, quando o repasse está ligado).
  * Taxas: só a tabela Visa/Mastercard, para qualquer bandeira (Gabriel, 27/11/2026).
  * `valor` é o quanto abate da dívida do cliente; o cliente paga `cobrado` no cartão.
  */
 export function CamposCartao({ forma, valor, parcelas, setParcelas }: {
   forma: string; valor: string; parcelas: number; setParcelas: (n: number) => void;
+=======
+ * Parcelas, bandeira e "quanto passar na maquininha" (com a taxa embutida, quando o repasse está ligado).
+ * `valor` é o quanto abate da dívida do cliente; o cliente paga `cobrado` no cartão.
+ */
+export function CamposCartao({ forma, valor, parcelas, setParcelas, bandeira, setBandeira }: {
+  forma: string; valor: string; parcelas: number; setParcelas: (n: number) => void; bandeira: string; setBandeira: (b: string) => void;
+>>>>>>> origin/claude/project-thread-vfblqz
 }) {
   const [sim, setSim] = useState<Simulacao | null>(null);
   const cartao = FORMAS_CARTAO_WEB.includes(forma);
   const v = Number(valor.replace(/\./g, '').replace(',', '.'));
   useEffect(() => {
     if (!cartao || !(v > 0)) { setSim(null); return; }
+<<<<<<< HEAD
     const q = new URLSearchParams({ valor: v.toFixed(2), forma, parcelas: String(parcelas) });
+=======
+    const q = new URLSearchParams({ valor: v.toFixed(2), forma, parcelas: String(parcelas), bandeira });
+>>>>>>> origin/claude/project-thread-vfblqz
     let vivo = true;
     const t = setTimeout(() => {
       api<Simulacao>(`/api/financeiro/simular-cartao?${q}`).then((r) => { if (vivo) setSim(r); }).catch(() => { if (vivo) setSim(null); });
     }, 250);
     return () => { vivo = false; clearTimeout(t); };
+<<<<<<< HEAD
   }, [cartao, v, forma, parcelas]);
+=======
+  }, [cartao, v, forma, parcelas, bandeira]);
+>>>>>>> origin/claude/project-thread-vfblqz
   if (!cartao) return null;
   return (
     <>
@@ -71,13 +91,25 @@ export function CamposCartao({ forma, valor, parcelas, setParcelas }: {
           </select>
         </label>
       )}
+<<<<<<< HEAD
+=======
+      <label className="flex flex-col gap-1">Bandeira
+        <select className={classeSelect} value={bandeira} onChange={(e) => setBandeira(e.target.value)}>
+          {BANDEIRAS_WEB.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+        </select>
+      </label>
+>>>>>>> origin/claude/project-thread-vfblqz
       {sim && (
         <p className="rounded-md border border-sky-500/30 bg-sky-500/10 px-2 py-1.5 text-sm sm:col-span-full">
           Passe na maquininha: <strong>{moeda(sim.cobrado)}</strong>
           {sim.parcelas > 1 ? <> ({sim.parcelas}x de <strong>{moeda(sim.valorParcela)}</strong>)</> : null}
           {sim.repasse && Number(sim.cobrado) > v
             ? <span className="block text-xs text-muted-foreground">Já com a taxa da maquininha embutida: a loja recebe {moeda(v.toFixed(2))}, como no PIX. Para o cliente, informe só o valor final.</span>
+<<<<<<< HEAD
             : forma === 'DEBITO' ? <span className="block text-xs text-muted-foreground">Débito: preço cheio, sem taxa embutida (a taxa fica por conta da loja).</span> : null}
+=======
+            : null}
+>>>>>>> origin/claude/project-thread-vfblqz
         </p>
       )}
     </>
@@ -92,6 +124,10 @@ export function FormReceber({ pedidoId, lancamentoId, valorPadrao, formaPadrao, 
   const [forma, setForma] = useState(formaPadrao && formaPadrao !== 'MISTO' ? formaPadrao : 'PIX');
   const [valor, setValor] = useState(valorPadrao.replace('.', ','));
   const [parcelas, setParcelas] = useState(3);
+<<<<<<< HEAD
+=======
+  const [bandeira, setBandeira] = useState('VISA_MASTER');
+>>>>>>> origin/claude/project-thread-vfblqz
   const [ocupado, setOcupado] = useState(false);
   const cartao = FORMAS_CARTAO_WEB.includes(forma);
   return (
@@ -103,7 +139,11 @@ export function FormReceber({ pedidoId, lancamentoId, valorPadrao, formaPadrao, 
         const r = await api<{ emAbertoDepois: string; cobrado: string }>(`/api/pedidos/${pedidoId}/receber`, {
           method: 'POST',
           corpo: {
+<<<<<<< HEAD
             valor, forma, parcelas: forma === 'CREDITO_PARCELADO' ? parcelas : undefined,
+=======
+            valor, forma, parcelas: forma === 'CREDITO_PARCELADO' ? parcelas : undefined, bandeira: cartao ? bandeira : undefined,
+>>>>>>> origin/claude/project-thread-vfblqz
             data: f.get('data'), lancamentoId,
           },
         });
@@ -117,7 +157,11 @@ export function FormReceber({ pedidoId, lancamentoId, valorPadrao, formaPadrao, 
           {FORMAS_RECEB.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
         </select>
       </label>
+<<<<<<< HEAD
       <CamposCartao forma={forma} valor={valor} parcelas={parcelas} setParcelas={setParcelas} />
+=======
+      <CamposCartao forma={forma} valor={valor} parcelas={parcelas} setParcelas={setParcelas} bandeira={bandeira} setBandeira={setBandeira} />
+>>>>>>> origin/claude/project-thread-vfblqz
       <label className="flex flex-col gap-1">Data<Input type="date" name="data" required defaultValue={hojeISO()} /></label>
       <div className="flex items-end gap-2">
         <Button disabled={ocupado}>Receber</Button>

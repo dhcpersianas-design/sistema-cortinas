@@ -76,16 +76,26 @@ async function contaId(db: Exec, codigo: string): Promise<number> {
 export type Taxa = { pct: Decimal; antecipPct: Decimal; diasRepasse: number; cadastrada: boolean };
 
 /** Taxa da forma de pagamento (MDR + antecipação) e prazo de repasse. Sem cadastro = 0%. */
+<<<<<<< HEAD
 // Gabriel (27/11/2026): vale só a tabela Visa/Mastercard para qualquer bandeira.
 export const BANDEIRAS = ['VISA_MASTER'] as const;
 /** Formas em que a taxa vai embutida no valor (débito não: cobra o preço cheio e a loja paga a taxa). */
 export const FORMAS_REPASSE = ['CREDITO_AVISTA', 'CREDITO_PARCELADO'];
 export type Bandeira = (typeof BANDEIRAS)[number];
+=======
+export const BANDEIRAS = ['VISA_MASTER', 'ELO_AMEX'] as const;
+export type Bandeira = (typeof BANDEIRAS)[number];
+export const NOME_BANDEIRA: Record<string, string> = { VISA_MASTER: 'Visa/Mastercard', ELO_AMEX: 'Elo/Amex', TODAS: 'Todas' };
+>>>>>>> origin/claude/project-thread-vfblqz
 
 export async function taxaDe(db: Exec, forma: string | null, parcelas = 1, bandeira: string | null = 'VISA_MASTER'): Promise<Taxa> {
   if (!forma) return { pct: d(0), antecipPct: d(0), diasRepasse: 0, cadastrada: false };
   const n = forma === 'CREDITO_PARCELADO' ? Math.max(2, parcelas) : 1;
+<<<<<<< HEAD
   const b = FORMAS_CARTAO.includes(forma) ? (bandeira === 'ELO_AMEX' ? 'ELO_AMEX' : 'VISA_MASTER') : 'TODAS';
+=======
+  const b = FORMAS_CARTAO.includes(forma) ? (bandeira ?? 'VISA_MASTER') : 'TODAS';
+>>>>>>> origin/claude/project-thread-vfblqz
   const [t] = await linhas<{ mdr: string; antecip: string; dias: number }>(db, sql`
     SELECT taxa_mdr_pct::text AS mdr, taxa_antecip_pct::text AS antecip, dias_repasse AS dias
       FROM taxas_pagamento WHERE forma_pagamento = ${forma}::forma_pagamento_enum AND parcelas = ${n} AND bandeira = ${b}`);
@@ -112,7 +122,11 @@ export function valorComRepasse(liquido: Decimal, taxaPct: Decimal): Decimal {
 export async function simularCartao(db: Exec, lojaId: string, valor: Decimal, forma: string, parcelas: number, bandeira: string | null) {
   const n = forma === 'CREDITO_PARCELADO' ? Math.max(2, parcelas) : 1;
   const t = await taxaDe(db, forma, n, bandeira);
+<<<<<<< HEAD
   const repasse = FORMAS_REPASSE.includes(forma) && await repasseLigado(db, lojaId);
+=======
+  const repasse = FORMAS_CARTAO.includes(forma) && await repasseLigado(db, lojaId);
+>>>>>>> origin/claude/project-thread-vfblqz
   const cobrado = repasse ? valorComRepasse(valor, t.pct) : dinheiro(valor);
   return {
     repasse, taxaPct: t.pct.toFixed(2), cobrado: cobrado.toFixed(2), parcelas: n,
@@ -202,7 +216,11 @@ export async function criarPlanoRecebimento(db: Exec, pedidoId: string, usuarioI
   const cartao = p.forma != null && ['CREDITO_AVISTA', 'CREDITO_PARCELADO'].includes(p.forma);
   const pct = cartao ? d(100) : d((await parametro(db as Banco, p.lojaId, 'SINAL_PADRAO_PCT')) ?? 50);
   // Taxa prevista: zero quando a taxa do cartão é repassada ao cliente (a loja recebe o valor cheio).
+<<<<<<< HEAD
   const repassa = p.forma != null && FORMAS_REPASSE.includes(p.forma) && await repasseLigado(db, p.lojaId);
+=======
+  const repassa = p.forma != null && FORMAS_CARTAO.includes(p.forma) && await repasseLigado(db, p.lojaId);
+>>>>>>> origin/claude/project-thread-vfblqz
   const taxa = repassa ? await taxaDe(db, null) : await taxaDe(db, p.forma, p.parcelas);
   const sinal = dinheiro(total.mul(pct).div(100));
   const saldo = total.minus(sinal);
@@ -283,7 +301,11 @@ export async function receberDoCliente(db: Exec, pedidoId: string, e: EntradaRec
     const t = await taxaDe(db, e.forma, n, bandeira);
     // Taxa repassada ao cliente: passa na maquininha o valor com a taxa embutida (cobrado); a dívida
     // do cliente baixa pelo valor sem taxa. A diferença (acrescimo_cliente) é receita do pedido.
+<<<<<<< HEAD
     cobrado = FORMAS_REPASSE.includes(e.forma) && (await repasseLigado(db, p.lojaId)) ? valorComRepasse(valor, t.pct) : valor;
+=======
+    cobrado = (await repasseLigado(db, p.lojaId)) ? valorComRepasse(valor, t.pct) : valor;
+>>>>>>> origin/claude/project-thread-vfblqz
     const taxaTotal = valorTaxa(cobrado, t);
     // Com antecipação a operadora deposita tudo de uma vez; sem, uma parcela a cada 30 dias.
     const repasses = t.antecipPct.gt(0) ? 1 : n;
@@ -293,7 +315,11 @@ export async function receberDoCliente(db: Exec, pedidoId: string, e: EntradaRec
     for (let k = 0; k < repasses; k++) {
       await inserirLancamento(db, {
         ...base, origem: 'CARTAO', cartao: true, grupo,
+<<<<<<< HEAD
         descricao: `Pedido ${p.numero} - ${rotulo} no ${NOME_FORMA[e.forma]!.toLowerCase()}${repasses > 1 ? ` (repasse ${k + 1}/${repasses})` : n > 1 ? ` em ${n}x (antecipado)` : ''}`,
+=======
+        descricao: `Pedido ${p.numero} - ${rotulo} no ${NOME_FORMA[e.forma]!.toLowerCase()} ${NOME_BANDEIRA[bandeira] ?? ''}${repasses > 1 ? ` (repasse ${k + 1}/${repasses})` : n > 1 ? ` em ${n}x (antecipado)` : ''}`,
+>>>>>>> origin/claude/project-thread-vfblqz
         valor: brutos[k]!, taxa: taxas[k]!, acrescimo: acrescimos[k]!, vencimento: somarDias(e.data, t.diasRepasse + 30 * k),
         parcela: k + 1, totalParcelas: repasses,
       });
