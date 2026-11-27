@@ -194,6 +194,36 @@ describe('trava de desconto e margem', () => {
     expect((await req(ana, 'GET', `/api/orcamentos/${id}/proposta.pdf`)).statusCode).toBe(409);
   });
 
+  it('teto de desconto: vendedor vê até onde pode ir; nunca vai para a proposta do cliente', async () => {
+    const o = (await req(ana, 'GET', `/api/orcamentos/${id}`)).json().orcamento;
+    const t = o.teto;
+    expect(t).toBeTruthy();
+    expect(t.saudavel.margemPct).toBe('45');
+    expect(t.minimo.margemPct).toBe('35');
+    expect(Number(t.minimo.valor)).toBeGreaterThan(Number(t.saudavel.valor));
+    // A vendedora tem limite de 10%: o máximo é o menor entre o limite dela e o da margem saudável
+    expect(t.vendedorPct).toBe('10.00');
+    const dezPct = (Number(o.totais.subtotal) * 0.1).toFixed(2);
+    expect(t.maximo.valor).toBe(Number(t.saudavel.valor) < Number(dezPct) ? t.saudavel.valor : dezPct);
+    expect(t.passou).toBe(true); // está com 12% de desconto
+    // Conferência com o administrador (vê a margem): o teto saudável deixa VERDE; o mínimo + R$ 1 fica VERMELHO
+    const doc = (desconto: string) => ({ clienteId: clienteAna, itens, atualizadoEmBase: atualizadoEm, condicoes: { descontoTipo: 'VALOR', descontoValor: desconto } });
+    let r = (await req(admin, 'PUT', `/api/orcamentos/${id}`, doc(t.saudavel.valor))).json().orcamento;
+    atualizadoEm = r.atualizadoEm;
+    expect(r.totais.semaforo).toBe('VERDE');
+    expect(Number(r.totais.margemLiquidaPct)).toBeGreaterThanOrEqual(45);
+    expect(r.teto.saudavel.valor).toBe(t.saudavel.valor); // não depende do desconto dado
+    r = (await req(admin, 'PUT', `/api/orcamentos/${id}`, doc(t.minimo.valor))).json().orcamento;
+    atualizadoEm = r.atualizadoEm;
+    expect(r.totais.semaforo).toBe('AMARELO');
+    r = (await req(admin, 'PUT', `/api/orcamentos/${id}`, doc((Number(t.minimo.valor) + 1).toFixed(2)))).json().orcamento;
+    atualizadoEm = r.atualizadoEm;
+    expect(r.totais.semaforo).toBe('VERMELHO');
+    // Proposta (PDF/link/WhatsApp) não leva o teto
+    const prop = JSON.stringify(await montarProposta(app.db, id, true));
+    expect(prop).not.toMatch(/teto|saudavel|maximo/i);
+  });
+
   it('margem vermelha não mostra o % para quem não vê custo', async () => {
     const r = await req(ana, 'PUT', `/api/orcamentos/${id}`, { clienteId: clienteAna, itens, atualizadoEmBase: atualizadoEm, condicoes: { descontoTipo: 'PERCENTUAL', descontoValor: '40' } });
     const o = r.json().orcamento;

@@ -10,7 +10,7 @@ import { api } from '@/lib/cliente';
 import { FORMAS, metros, moeda } from '../orcamentos/formato';
 import { CartaoOrdem, type Ordem } from './ordens';
 import { FinanceiroPedido, type FinanceiroDoPedido } from './financeiro-pedido';
-import { CamposCartao, FORMAS_CARTAO_WEB, FORMAS_RECEB } from '../financeiro/comum';
+import { CamposCartao, FORMAS_RECEB } from '../financeiro/comum';
 import { corStatus, dataBR, dataHoraBR, ETAPAS, hojeISO, isoParaLocal, localParaIso, STATUS_PEDIDO } from './formato';
 
 type Resumo = {
@@ -416,14 +416,12 @@ function FormSinal({ p, ocupado, onSinal }: { p: Pedido; ocupado: boolean; onSin
   const [forma, setForma] = useState(p.formaPagamento && p.formaPagamento !== 'MISTO' ? p.formaPagamento : 'PIX');
   const [valor, setValor] = useState((Number(p.valorTotal) / 2).toFixed(2).replace('.', ','));
   const [parcelas, setParcelas] = useState(3);
-  const [bandeira, setBandeira] = useState('VISA_MASTER');
-  const cartao = FORMAS_CARTAO_WEB.includes(forma);
   return (
     <form className="space-y-2" onSubmit={(e) => {
       e.preventDefault();
       const f = new FormData(e.currentTarget);
       onSinal(semSinal ? { semSinal: true, motivo: f.get('motivo') || null }
-        : { valor, forma, recebidoEm: f.get('data'), ...(forma === 'CREDITO_PARCELADO' ? { parcelas } : {}), ...(cartao ? { bandeira } : {}) });
+        : { valor, forma, recebidoEm: f.get('data'), ...(forma === 'CREDITO_PARCELADO' ? { parcelas } : {}) });
     }}>
       <p>Confirme o sinal para liberar as compras. As ordens por fornecedor são geradas na hora.</p>
       <label className="flex items-center gap-2"><input type="checkbox" checked={semSinal} onChange={(e) => setSemSinal(e.target.checked)} /> Liberar sem sinal (decisão do administrador)</label>
@@ -437,7 +435,7 @@ function FormSinal({ p, ocupado, onSinal }: { p: Pedido; ocupado: boolean; onSin
               {FORMAS_RECEB.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
             </select>
           </label>
-          <CamposCartao forma={forma} valor={valor} parcelas={parcelas} setParcelas={setParcelas} bandeira={bandeira} setBandeira={setBandeira} />
+          <CamposCartao forma={forma} valor={valor} parcelas={parcelas} setParcelas={setParcelas} />
           <label className="flex flex-col gap-1">Recebido em<Input type="date" name="data" required defaultValue={hojeISO()} /></label>
         </div>
       )}

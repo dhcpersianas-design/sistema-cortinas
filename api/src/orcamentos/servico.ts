@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { sql, type SQL } from 'drizzle-orm';
 import {
-  calcularItem, checarLiberacao, d, descricaoComercial, garantiaDoItem, ErroEntrada, LIMITES_SEMAFORO_PADRAO, ratearDesconto, totalizarOrcamento,
-  type Ajuste, type Catalogo, type EntradaItem,
+  calcularItem, checarLiberacao, d, descricaoComercial, garantiaDoItem, ErroEntrada, LIMITES_SEMAFORO_PADRAO, ratearDesconto, tetoDesconto, totalizarOrcamento,
+  type Ajuste, type Catalogo, type Decimal, type EntradaItem,
 } from '@sistema/motor-calculo';
 import type { Banco } from '../db/conexao.js';
 import type { UsuarioSessao } from '../auth/sessao.js';
@@ -47,9 +47,9 @@ export async function parametrosMargem(db: Exec, lojaId: string, vendedorId: str
   const [v] = await linhas<{ comissao: string | null; descontoMax: string | null }>(db,
     sql`SELECT comissao_padrao AS comissao, desconto_max_pct AS "descontoMax" FROM usuarios WHERE id = ${vendedorId}`);
   let taxaPct = '0';
-  // Cartão com a taxa repassada ao cliente (REPASSAR_TAXA_CARTAO = 1): a loja recebe o mesmo que no PIX,
-  // então a taxa não reduz a margem do orçamento.
-  const cartao = forma != null && ['DEBITO', 'CREDITO_AVISTA', 'CREDITO_PARCELADO'].includes(forma);
+  // Crédito com a taxa repassada ao cliente (REPASSAR_TAXA_CARTAO = 1): a loja recebe o mesmo que no PIX,
+  // então a taxa não reduz a margem do orçamento. Débito: preço cheio, a taxa sai da margem.
+  const cartao = forma != null && ['CREDITO_AVISTA', 'CREDITO_PARCELADO'].includes(forma);
   const repasse = cartao && d((await p('REPASSAR_TAXA_CARTAO')) ?? 0).gt(0);
   if (forma && !repasse) {
     const [t] = await linhas<{ taxa: string }>(db, sql`
@@ -232,6 +232,41 @@ export function documentoPublico(u: UsuarioSessao, doc: NonNullable<Awaited<Retu
   };
 }
 export type DocumentoPublico = ReturnType<typeof documentoPublico>;
+
+/**
+ * Teto de desconto para o vendedor negociar (Gabriel, 27/11/2026). Só vai na resposta da API para
+ * quem está logado; nunca no PDF, no link público nem no texto do WhatsApp.
+ * - saudavel: maior desconto mantendo a margem verde (SEMAFORO_VERDE_MIN_PCT, 45%);
+ * - minimo: maior desconto antes de ficar vermelho (SEMAFORO_AMARELO_MIN_PCT, 35%), a partir do qual
+ *   precisa da senha do administrador;
+ * - vendedor: limite de desconto do vendedor (desconto_max_pct), quando cadastrado;
+ * - maximo: o menor entre o saudável e o limite do vendedor (é o número principal na tela).
+ */
+export async function tetoDoOrcamento(db: Exec, doc: NonNullable<Awaited<ReturnType<typeof lerDocumento>>>) {
+  const { c, itens } = doc;
+  const p = await parametrosMargem(db, c.lojaId, c.vendedorId, c.formaPagamento, c.parcelas ?? 1);
+  const base = itens.map((i) => ({ vendaTotal: i.vendaTotal, custoTotal: i.custoTotal }));
+  const saudavel = tetoDesconto(base, c.acrescimo, p, p.limites.verdeMinPct);
+  const minimo = tetoDesconto(base, c.acrescimo, p, p.limites.amareloMinPct);
+  const subtotal = d(c.subtotal);
+  const vendedorPct = p.descontoMaxPct != null ? d(p.descontoMaxPct) : null;
+  const vendedorValor = vendedorPct ? subtotal.mul(vendedorPct).div(100).toDecimalPlaces(2, 1) : null;
+  const maximo = vendedorValor && vendedorValor.lt(saudavel.valor) ? vendedorValor : saudavel.valor;
+  const atual = d(c.descontoValor);
+  const pctDe = (v: Decimal) => (subtotal.gt(0) ? v.div(subtotal).mul(100).toDecimalPlaces(2, 1).toFixed(2) : '0.00');
+  return {
+    maximo: { valor: maximo.toFixed(2), pct: pctDe(maximo), pelo: vendedorValor && vendedorValor.lt(saudavel.valor) ? 'VENDEDOR' : 'MARGEM' },
+    saudavel: { valor: saudavel.valor.toFixed(2), pct: saudavel.pct.toFixed(2), margemPct: d(p.limites.verdeMinPct).toFixed(0) },
+    minimo: { valor: minimo.valor.toFixed(2), pct: minimo.pct.toFixed(2), margemPct: d(p.limites.amareloMinPct).toFixed(0) },
+    vendedorPct: vendedorPct?.toFixed(2) ?? null,
+    // Acima deste desconto precisa da senha do administrador (margem vermelha ou limite do vendedor).
+    senhaAcima: (() => { const v = vendedorValor && vendedorValor.lt(minimo.valor) ? vendedorValor : minimo.valor; return { valor: v.toFixed(2), pct: pctDe(v) }; })(),
+    descontoAtual: atual.toFixed(2),
+    aindaCabe: (maximo.gt(atual) ? maximo.minus(atual) : d(0)).toFixed(2),
+    passou: atual.gt(maximo),
+  };
+}
+export type TetoDoOrcamento = Awaited<ReturnType<typeof tetoDoOrcamento>>;
 
 // ------------------------------------------------------------------ auditoria
 

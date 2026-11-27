@@ -360,6 +360,8 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
         </CardContent>
       </Card>
 
+      {doc.teto && doc.itens.length > 0 && <TetoNegociacao teto={doc.teto} desatualizado={!!doc.provisorio} />}
+
       {/* Condições */}
       <Card>
         <CardHeader><CardTitle>Condições da proposta</CardTitle></CardHeader>
@@ -545,5 +547,46 @@ function Liberacao({ motivos, admin, salvando, onLiberar }: { motivos: string[];
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Teto de desconto (Gabriel, 27/11/2026): o vendedor vê até onde pode negociar sem sair da margem
+ * saudável. Só nesta tela: não vai no PDF, no link do cliente nem no WhatsApp.
+ */
+function TetoNegociacao({ teto, desatualizado }: { teto: NonNullable<Orcamento['teto']>; desatualizado: boolean }) {
+  const passouMinimo = Number(teto.descontoAtual) > Number(teto.senhaAcima.valor);
+  const faixaAmarela = Number(teto.senhaAcima.valor) > Number(teto.maximo.valor);
+  return (
+    <Card className="border-sky-500/40">
+      <CardHeader>
+        <CardTitle>Negociação</CardTitle>
+        <p className="text-xs text-muted-foreground">Só para você. Não aparece para o cliente (PDF, link e WhatsApp).</p>
+      </CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        <div className="rounded-md bg-sky-500/10 px-3 py-2">
+          <div className="text-xs text-muted-foreground">Desconto máximo nesta venda</div>
+          <div className="text-lg font-semibold">{moeda(teto.maximo.valor)} <span className="text-sm font-normal">({pct(teto.maximo.pct)})</span></div>
+          <div className="text-xs text-muted-foreground">
+            {teto.maximo.pelo === 'VENDEDOR'
+              ? `É o seu limite de desconto (${pct(teto.vendedorPct ?? undefined)}).`
+              : `Mantém a margem saudável (${teto.saudavel.margemPct}% ou mais).`}
+          </div>
+        </div>
+        {Number(teto.descontoAtual) > 0 && (
+          teto.passou
+            ? <p className={passouMinimo ? 'text-destructive' : 'text-amber-700 dark:text-amber-400'}>
+                O desconto dado ({moeda(teto.descontoAtual)}) passou do máximo.{passouMinimo ? ' Precisa da senha do administrador.' : ' A margem saiu da faixa saudável.'}
+              </p>
+            : <p>Já deu {moeda(teto.descontoAtual)} de desconto. Ainda cabe <strong>{moeda(teto.aindaCabe)}</strong>.</p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          {faixaAmarela
+            ? `De ${moeda(teto.maximo.valor)} até ${moeda(teto.senhaAcima.valor)} (${pct(teto.senhaAcima.pct)}) a margem fica amarela, abaixo do saudável. Acima disso precisa da senha do administrador.`
+            : 'Acima disso precisa da senha do administrador.'}
+        </p>
+        {desatualizado && <p className="text-xs text-muted-foreground">Calculado na última sincronização: confere de novo quando a internet voltar.</p>}
+      </CardContent>
+    </Card>
   );
 }
