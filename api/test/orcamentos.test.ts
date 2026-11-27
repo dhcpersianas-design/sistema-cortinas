@@ -325,21 +325,30 @@ describe('proposta em PDF', () => {
   it('dados da proposta: agrupada por ambiente, sem custo, componentes só se pedir', async () => {
     const p = (await montarProposta(app.db, id, false))!;
     expect(p.ambientes.map((a) => a.nome)).toEqual(['Sala', 'Quarto']);
-    expect(p.ambientes[0]!.itens[0]).toMatchObject({ valor: 'R$ 2.745,40', medidas: '3,00 m x 2,60 m' });
+    expect(p.ambientes[0]!.itens[0]).toMatchObject({ valor: 'R$ 2.745,40', medidas: '3,00 × 2,60 m (L × A)', titulo: 'Cortina Wave', icone: 'CORTINA', pecas: 1 });
+    expect(p.ambientes[0]!.itens[0]!.detalhes.map((x) => x.rotulo)).toEqual(expect.arrayContaining(['Tecido', 'Forro', 'Abertura', 'Trilho / varão']));
+    expect(p.ambientes[1]!.itens[0]!.detalhes).toContainEqual({ rotulo: 'Acionamento', valor: 'Motorizado' });
+    expect(p.loja).toMatchObject({ telefone: '(41) 98837-5657', email: 'dhc@dhcpersianas.com.br', instagram: '@dhcpersianas' });
     expect(p.ambientes[0]!.itens[0]!.componentes).toBeUndefined();
     expect(p.total).toBe('R$ 5.062,00');
     expect(p.condicoesPagamento).toBe('Cartão de crédito parcelado em 3x de R$ 1.797,33');
     expect(p.avisoConferencia).toBe(true);
     expect(p.rascunho).toBe(true);
-    expect(p.garantia).toBe('Contra defeitos de fabricação e instalação, no prazo indicado em cada item.');
+    expect(p.garantia).toBe('Contra defeitos de fabricação e instalação, no prazo indicado para cada item abaixo.');
     expect(p.ambientes.map((a) => a.itens[0]!.garantia)).toEqual(['12 meses', '2 anos; motor 5 anos']);
     expect(p.prazoEntrega).toMatch(/^14 dias úteis \(sem contar sábado e domingo\)/);
     expect(JSON.stringify(p)).not.toMatch(/custo|1053|2018/i);
     const det = (await montarProposta(app.db, id, true))!;
     expect(det.ambientes[0]!.itens[0]!.componentes).toHaveLength(11);
     expect(det.ambientes[0]!.itens[0]!.componentes![5]).toEqual({ descricao: 'Deslizante Wave c/ Cordao 6.7cm', quantidade: '48 UN' });
-    const pdf = await gerarPdf(det);
+    const pdf = await gerarPdf(det, { comprimir: false });
     expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+    // Montserrat embutida (funciona no servidor sem internet) e logo da loja.
+    const bruto = pdf.toString('latin1');
+    expect(bruto).toMatch(/\/BaseFont \/[A-Z]{6}\+Montserrat-Bold/);
+    expect(bruto).toMatch(/\/BaseFont \/[A-Z]{6}\+Montserrat-Regular/);
+    expect(bruto).toMatch(/\/Subtype \/Image/);
+    expect(bruto).not.toMatch(/Helvetica/);
   });
 
   it('PDF pela API e link público para o WhatsApp só depois de enviar', async () => {

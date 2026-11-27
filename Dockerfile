@@ -31,6 +31,7 @@ COPY --from=build /app/motor-calculo/dist motor-calculo/dist
 COPY --from=build /app/motor-calculo/dados motor-calculo/dados
 COPY --from=build /app/api/dist api/dist
 COPY --from=build /app/api/db api/db
+COPY --from=build /app/api/assets api/assets
 COPY --from=build /app/web/.next web/.next
 COPY --from=build /app/web/public web/public
 COPY --from=build /app/web/next.config.ts web/
