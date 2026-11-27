@@ -165,10 +165,13 @@ describe('contas a receber e a pagar do pedido', () => {
   it('receber o saldo no crédito 3x gera 3 repasses com a taxa; desfazer volta a cobrar', async () => {
     const r = await req(admin, 'POST', `/api/pedidos/${pedido.id}/receber`, { valor: '2062.00', forma: 'CREDITO_PARCELADO', parcelas: 3, data: hoje });
     expect(r.statusCode, r.body).toBe(200);
+    // Taxa repassada ao cliente: passa 2.062 / (1 - 4,5%) = 2.159,17 na maquininha; a loja fica com 2.062.
+    expect(r.json().cobrado).toBe('2159.17');
     let { lanc, p } = await fin(pedido.id);
     const cartao = lanc.filter((l) => l.cartao);
-    expect(cartao.map((l) => l.valor)).toEqual(['687.34', '687.33', '687.33']);
-    expect(cartao.reduce((s, l) => s.plus(d(l.taxa)), d(0)).toFixed(2)).toBe('92.79'); // 4,5% de 2.062
+    expect(cartao.map((l) => l.valor)).toEqual(['719.73', '719.72', '719.72']);
+    expect(cartao.reduce((s, l) => s.plus(d(l.taxa)), d(0)).toFixed(2)).toBe('97.16'); // 4,5% de 2.159,17
+    expect(cartao.reduce((s, l) => s.plus(d(l.liquido)), d(0)).toFixed(2)).toBe('2062.01');
     expect(cartao.map((l) => l.vencimento)).toEqual([somarDias(hoje, 30), somarDias(hoje, 60), somarDias(hoje, 90)]);
     expect(p.saldo).toBe('0.00');
     // Valor maior que o saldo: recusado
@@ -183,13 +186,25 @@ describe('contas a receber e a pagar do pedido', () => {
     expect((await req(admin, 'POST', `/api/pedidos/${pedido.id}/receber`, { valor: '2062', forma: 'PIX', data: hoje })).statusCode).toBe(200);
   });
 
+  it('simulação do cartão: Elo/Amex 12x embute a taxa; vendedor não vê a taxa', async () => {
+    const q = 'valor=1000&forma=CREDITO_PARCELADO&parcelas=12&bandeira=ELO_AMEX';
+    const a = (await req(admin, 'GET', `/api/financeiro/simular-cartao?${q}`)).json();
+    expect(a).toMatchObject({ repasse: true, taxaPct: '13.41', cobrado: '1154.87', parcelas: 12, valorParcela: '96.24' });
+    const v = (await req(ana, 'GET', `/api/financeiro/simular-cartao?${q}`)).json();
+    expect(v).toEqual({ repasse: true, cobrado: '1154.87', parcelas: 12, valorParcela: '96.24' });
+    const pix = (await req(ana, 'GET', '/api/financeiro/simular-cartao?valor=1000&forma=PIX')).json();
+    expect(pix.cobrado).toBe('1000.00');
+  });
+
   it('lucro real = venda - custo real - taxas - comissão', async () => {
     const { lucro, lanc } = await fin(pedido.id);
     const custo = lanc.filter((l) => ['ORDEM_COMPRA', 'INSTALACAO'].includes(l.origem)).reduce((s, l) => s.plus(d(l.valor)), d(0));
     expect(lucro.custoEstimado).toBe(false);
     expect(lucro.custoReal).toBe(custo.toFixed(2));
     expect(lucro.comissao).toBe('253.10');
-    expect(lucro.lucro).toBe(d('5062').minus(custo).minus(d(lucro.taxas)).minus(d('253.10')).toFixed(2));
+    // O recebimento no cartão foi desfeito e pago no PIX: não sobra taxa embutida na venda.
+    expect(lucro.venda).toBe('5062.00');
+    expect(lucro.lucro).toBe(d(lucro.venda).minus(custo).minus(d(lucro.taxas)).minus(d('253.10')).toFixed(2));
     expect(Number(lucro.desvio)).toBeGreaterThan(0); // tecido custou mais que o previsto
   });
 
@@ -241,7 +256,20 @@ describe('aditivo, cancelamento e cartão na aprovação', () => {
     const rec = lanc.filter((l) => l.tipo === 'RECEITA');
     expect(rec).toHaveLength(1);
     expect(rec[0]!.valor).toBe(p.valorTotal);
-    expect(rec[0]!.taxa).toBe(d(p.valorTotal).mul('0.045').toDecimalPlaces(2).toFixed(2));
+    expect(rec[0]!.taxa).toBe('0.00'); // a taxa vai embutida no valor passado na maquininha
+    // Recebe em 3x Visa/Master (4,5% no teste): passa o valor com a taxa embutida e a loja fica com o total.
+    const r = await req(admin, 'POST', `/api/pedidos/${p.id}/receber`, { valor: p.valorTotal, forma: 'CREDITO_PARCELADO', parcelas: 3, bandeira: 'VISA_MASTER', data: hoje });
+    expect(r.statusCode, r.body).toBe(200);
+    const cobrado = d(p.valorTotal).div('0.955').toDecimalPlaces(2, 0);
+    expect(r.json().cobrado).toBe(cobrado.toFixed(2));
+    const { lucro, p: pp } = await fin(p.id);
+    expect(pp.saldo).toBe('0.00');
+    expect(lucro.venda).toBe(cobrado.toFixed(2)); // venda inclui a taxa paga pelo cliente
+    expect(d(lucro.venda).minus(d(lucro.taxas)).minus(d(p.valorTotal)).abs().lte('0.05')).toBe(true);
+    // Cada bandeira tem a sua tabela: 2x é 5,39% na Visa/Master e 6,47% na Elo/Amex
+    const sim = async (b: string) => (await req(admin, 'GET', `/api/financeiro/simular-cartao?valor=1000&forma=CREDITO_PARCELADO&parcelas=2&bandeira=${b}`)).json().taxaPct;
+    expect(await sim('VISA_MASTER')).toBe('5.39');
+    expect(await sim('ELO_AMEX')).toBe('6.47');
   });
 
   it('pedido antigo (sem cobranças) ganha o plano com o sinal já pago ao abrir o financeiro', async () => {
@@ -281,15 +309,17 @@ describe('lançamentos avulsos, despesas fixas e MEI', () => {
   it('DAS do MEI ligado é lançado todo mês, sem duplicar', async () => {
     const cfg = (await req(admin, 'GET', '/api/financeiro/config')).json();
     const das = cfg.recorrentes.find((r: { descricao: string }) => r.descricao.startsWith('DAS'));
-    expect(das.ativo).toBe(false);
-    const resumo1 = (await req(admin, 'GET', '/api/financeiro/resumo')).json();
-    expect(resumo1.pendencias.join(' ')).toContain('DAS');
+    // Já vem ligado com R$ 87,05 (Gabriel, 27/11/2026), começando no primeiro dia 20 que ainda não passou.
+    expect(das).toMatchObject({ ativo: true, valor: '87.05', dia: 20 });
+    const diaHoje = Number(hoje.slice(8, 10));
+    expect(das.inicio).toBe(diaHoje > 20 ? `${somarDias(`${hoje.slice(0, 8)}28`, 7).slice(0, 8)}01` : `${hoje.slice(0, 8)}01`);
     const r = await req(admin, 'PUT', `/api/financeiro/recorrentes/${das.id}`, { descricao: das.descricao, planoContaId: das.planoContaId, valor: '81,90', dia: 20, ativo: true });
     expect(r.statusCode, r.body).toBe(200);
     await req(admin, 'GET', '/api/financeiro/resumo');
     await req(admin, 'GET', '/api/financeiro/resumo');
     const { rows } = await pool.query(`SELECT mes_referencia, valor_bruto, data_vencimento FROM lancamentos_financeiros WHERE despesa_recorrente_id = $1 ORDER BY 1`, [das.id]);
-    expect(rows).toHaveLength(2); // este mês e o próximo
+    expect(rows).toHaveLength(diaHoje > 20 ? 1 : 2); // até o mês que vem, sem o dia 20 que já passou
+    expect(rows.every((x: { data_vencimento: Date }) => x.data_vencimento.toISOString().slice(0, 10) >= hoje)).toBe(true);
     expect(rows[0].valor_bruto).toBe('81.90');
   });
 
@@ -335,12 +365,17 @@ describe('os 8 relatórios', () => {
     const linhas = comp.tabelas[0].linhas as { conta: string; valor: string }[];
     // Receita bruta - devoluções (aditivo que reduziu um pedido já pago) = vendas do período
     const devolucoes = linhas.find((l) => l.conta.startsWith('2.03'))?.valor ?? '0';
-    expect(d(comp.resumo[0].valor).plus(d(devolucoes)).toFixed(2)).toBe(v.v);
+    // ... mais a taxa do cartão que o cliente pagou embutida
+    const { rows: [a] } = await pool.query(`SELECT COALESCE(SUM(acrescimo_cliente), 0)::numeric(12,2)::text AS v FROM lancamentos_financeiros WHERE status <> 'CANCELADO'`);
+    expect(d(comp.resumo[0].valor).plus(d(devolucoes)).toFixed(2)).toBe(d(v.v).plus(d(a.v)).toFixed(2));
     // cortinas, persianas e instalação separadas
     expect(linhas.some((l) => l.conta.startsWith('1.01'))).toBe(true);
     expect(linhas.some((l) => l.conta.startsWith('1.02'))).toBe(true);
     expect(linhas.some((l) => l.conta.startsWith('1.03'))).toBe(true);
-    expect(linhas.some((l) => l.conta.startsWith('5.04'))).toBe(true); // DAS
+    // DAS: aparece no mês em que vence (hoje ou no próximo, se o dia 20 deste mês já passou)
+    const prox = `de=${somarDias(hoje, 0).slice(0, 8)}01&ate=${somarDias(hoje, 45)}`;
+    const dre2 = (await req(admin, 'GET', `/api/relatorios/dre?${prox}`)).json().relatorio;
+    expect((dre2.tabelas[0].linhas as { conta: string }[]).some((l) => l.conta.startsWith('5.04'))).toBe(true);
     const caixa = (await req(admin, 'GET', `/api/relatorios/dre?${periodo}&regime=caixa`)).json().relatorio;
     const { rows: [rc] } = await pool.query(`SELECT COALESCE(SUM(valor_bruto), 0)::numeric(12,2)::text AS v FROM lancamentos_financeiros l
       JOIN plano_contas pc ON pc.id = l.plano_conta_id WHERE l.tipo = 'RECEITA' AND l.status = 'LIQUIDADO' AND pc.grupo_dre = 'RECEITA'

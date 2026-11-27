@@ -348,7 +348,7 @@ export async function confirmarAditivo(db: Banco, u: UsuarioSessao, pedidoId: st
 
 // ------------------------------------------------------------------ sinal e compras
 
-export type EntradaSinal = { valor: string; forma: string; recebidoEm: string; parcelas?: number } | { semSinal: true; motivo?: string };
+export type EntradaSinal = { valor: string; forma: string; recebidoEm: string; parcelas?: number; bandeira?: string | null } | { semSinal: true; motivo?: string };
 
 /** Confirma o sinal (ou libera sem sinal) e gera as ordens de compra por fornecedor. */
 export async function liberarCompras(db: Banco, u: UsuarioSessao, pedidoId: string, e: EntradaSinal) {
@@ -364,12 +364,13 @@ export async function liberarCompras(db: Banco, u: UsuarioSessao, pedidoId: stri
       if (d(e.valor).gt(d(p.valorTotal))) throw new ErroPedido('O sinal não pode ser maior que o valor do pedido.');
       await tx.execute(sql`UPDATE pedidos SET sinal_valor = ${d(e.valor).toFixed(2)}, sinal_forma = ${e.forma}::forma_pagamento_enum,
         sinal_recebido_em = ${e.recebidoEm}::date, compras_liberadas_em = NOW(), compras_liberadas_por_id = ${u.id} WHERE id = ${p.id}`);
-      await registrarEvento(tx, p.id, u.id, 'SINAL', `Sinal de R$ ${d(e.valor).toFixed(2)} recebido em ${e.recebidoEm.split('-').reverse().join('/')}.`,
-        { valor: e.valor, forma: e.forma });
       // Baixa nas contas a receber (sinal primeiro; o que passar abate o saldo).
       await criarPlanoRecebimento(tx, p.id, u.id);
       try {
-        await receberDoCliente(tx, p.id, { valor: e.valor, forma: e.forma, parcelas: e.parcelas, data: e.recebidoEm }, u.id);
+        const r = await receberDoCliente(tx, p.id, { valor: e.valor, forma: e.forma, parcelas: e.parcelas, data: e.recebidoEm, bandeira: e.bandeira }, u.id);
+        const naMaquina = r.cobrado !== d(e.valor).toFixed(2) ? ` (passou R$ ${r.cobrado} na maquininha)` : '';
+        await registrarEvento(tx, p.id, u.id, 'SINAL', `Sinal de R$ ${d(e.valor).toFixed(2)}${naMaquina} recebido em ${e.recebidoEm.split('-').reverse().join('/')}.`,
+          { valor: e.valor, forma: e.forma });
       } catch (x) {
         if (x instanceof ErroFinanceiro) throw new ErroPedido(x.message, x.status);
         throw x;

@@ -10,7 +10,7 @@ import { api } from '@/lib/cliente';
 import { FORMAS, metros, moeda } from '../orcamentos/formato';
 import { CartaoOrdem, type Ordem } from './ordens';
 import { FinanceiroPedido, type FinanceiroDoPedido } from './financeiro-pedido';
-import { FORMAS_RECEB } from '../financeiro/comum';
+import { CamposCartao, FORMAS_CARTAO_WEB, FORMAS_RECEB } from '../financeiro/comum';
 import { corStatus, dataBR, dataHoraBR, ETAPAS, hojeISO, isoParaLocal, localParaIso, STATUS_PEDIDO } from './formato';
 
 type Resumo = {
@@ -414,13 +414,16 @@ function Linha({ r, v, forte }: { r: string; v: string; forte?: boolean }) {
 function FormSinal({ p, ocupado, onSinal }: { p: Pedido; ocupado: boolean; onSinal: (c: object) => void }) {
   const [semSinal, setSemSinal] = useState(false);
   const [forma, setForma] = useState(p.formaPagamento && p.formaPagamento !== 'MISTO' ? p.formaPagamento : 'PIX');
-  const metade = (Number(p.valorTotal) / 2).toFixed(2).replace('.', ',');
+  const [valor, setValor] = useState((Number(p.valorTotal) / 2).toFixed(2).replace('.', ','));
+  const [parcelas, setParcelas] = useState(3);
+  const [bandeira, setBandeira] = useState('VISA_MASTER');
+  const cartao = FORMAS_CARTAO_WEB.includes(forma);
   return (
     <form className="space-y-2" onSubmit={(e) => {
       e.preventDefault();
       const f = new FormData(e.currentTarget);
       onSinal(semSinal ? { semSinal: true, motivo: f.get('motivo') || null }
-        : { valor: f.get('valor'), forma, recebidoEm: f.get('data'), ...(forma === 'CREDITO_PARCELADO' ? { parcelas: Number(f.get('parcelas')) } : {}) });
+        : { valor, forma, recebidoEm: f.get('data'), ...(forma === 'CREDITO_PARCELADO' ? { parcelas } : {}), ...(cartao ? { bandeira } : {}) });
     }}>
       <p>Confirme o sinal para liberar as compras. As ordens por fornecedor são geradas na hora.</p>
       <label className="flex items-center gap-2"><input type="checkbox" checked={semSinal} onChange={(e) => setSemSinal(e.target.checked)} /> Liberar sem sinal (decisão do administrador)</label>
@@ -428,19 +431,13 @@ function FormSinal({ p, ocupado, onSinal }: { p: Pedido; ocupado: boolean; onSin
         <Input name="motivo" className="w-72" placeholder="Motivo (opcional)" />
       ) : (
         <div className="grid gap-2 sm:grid-cols-3">
-          <label className="flex flex-col gap-1">Valor do sinal<Input name="valor" inputMode="decimal" required defaultValue={metade} /></label>
+          <label className="flex flex-col gap-1">Valor do sinal<Input inputMode="decimal" required value={valor} onChange={(e) => setValor(e.target.value)} /></label>
           <label className="flex flex-col gap-1">Forma
             <select name="forma" className={classeSelect} value={forma} onChange={(e) => setForma(e.target.value)}>
               {FORMAS_RECEB.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
             </select>
           </label>
-          {forma === 'CREDITO_PARCELADO' && (
-            <label className="flex flex-col gap-1">Parcelas
-              <select name="parcelas" className={classeSelect} defaultValue="3">
-                {Array.from({ length: 11 }, (_, i) => i + 2).map((n) => <option key={n} value={n}>{n}x</option>)}
-              </select>
-            </label>
-          )}
+          <CamposCartao forma={forma} valor={valor} parcelas={parcelas} setParcelas={setParcelas} bandeira={bandeira} setBandeira={setBandeira} />
           <label className="flex flex-col gap-1">Recebido em<Input type="date" name="data" required defaultValue={hojeISO()} /></label>
         </div>
       )}

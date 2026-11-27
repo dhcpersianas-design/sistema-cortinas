@@ -8,7 +8,7 @@ import { mensagemErro, termoLike, textoOpcional } from '../cadastros/campos.js';
 import { parametro } from '../catalogo/parametros.js';
 import {
   ErroFinanceiro, estornarRecebimento, FORMAS_RECEBIMENTO, inserirLancamento, contaPadrao, receberDoCliente, rotinaFinanceira,
-  situacaoMei, NOME_FORMA, taxaDe,
+  situacaoMei, NOME_FORMA, taxaDe, BANDEIRAS, NOME_BANDEIRA, simularCartao,
 } from '../financeiro/servico.js';
 import { ErroPedido, lerPedido, pedidoNoEscopo, registrarEvento } from '../pedidos/servico.js';
 import { hojeLoja } from '../pedidos/dias-uteis.js';
@@ -41,6 +41,7 @@ export const PARAMETROS_EDITAVEIS: Record<string, { rotulo: string; dica: string
   SEMAFORO_VERDE_MIN_PCT: { rotulo: 'Margem verde a partir de (%)', dica: 'Padrão 45%.', min: 0, max: 100 },
   SEMAFORO_AMARELO_MIN_PCT: { rotulo: 'Margem amarela a partir de (%)', dica: 'Padrão 35%. Abaixo disso pede a senha do administrador.', min: 0, max: 100 },
   MARKUP_PADRAO_PCT: { rotulo: 'Markup padrão do catálogo (%)', dica: '100% = venda é o dobro do custo.', min: 0, max: 1000 },
+  REPASSAR_TAXA_CARTAO: { rotulo: 'Embutir a taxa do cartão no valor (1 = sim, 0 = não)', dica: 'Com 1, no cartão o cliente paga o valor com a taxa embutida e a loja recebe o mesmo que no PIX.', min: 0, max: 1 },
   POS_VENDA_DIAS: { rotulo: 'Pós-venda: ligar quantos dias depois da instalação', dica: 'Padrão 7 dias.', min: 1, max: 90 },
 };
 
@@ -305,7 +306,7 @@ export async function rotasFinanceiro(app: FastifyInstance) {
     const e = corpoOu400(z.object({
       valor: dinheiroTxt, forma: z.enum(FORMAS_RECEBIMENTO), data: dataTxt,
       parcelas: z.coerce.number().int().min(1).max(24).optional(),
-      contaFinanceiraId: uuid.nullish(), lancamentoId: uuid.nullish(),
+      contaFinanceiraId: uuid.nullish(), lancamentoId: uuid.nullish(), bandeira: z.enum(BANDEIRAS).nullish(),
     }), req, res);
     if (!e) return;
     const u = req.usuario!;
@@ -316,8 +317,9 @@ export async function rotasFinanceiro(app: FastifyInstance) {
         await tx.execute(sql`SELECT id FROM pedidos WHERE id = ${p.id} FOR UPDATE`);
         const x = await receberDoCliente(tx, p.id, e, u.id);
         const parc = e.forma === 'CREDITO_PARCELADO' ? ` em ${e.parcelas ?? 2}x` : '';
+        const naMaquina = x.cobrado !== d(e.valor).toFixed(2) ? `, passou R$ ${x.cobrado} na maquininha` : '';
         await registrarEvento(tx, p.id, u.id, 'RECEBIMENTO',
-          `Recebido R$ ${d(e.valor).toFixed(2)} (${NOME_FORMA[e.forma]}${parc}) em ${e.data.split('-').reverse().join('/')}. Falta R$ ${x.emAbertoDepois}.`,
+          `Recebido R$ ${d(e.valor).toFixed(2)} (${NOME_FORMA[e.forma]}${parc}${naMaquina}) em ${e.data.split('-').reverse().join('/')}. Falta R$ ${x.emAbertoDepois}.`,
           { valor: e.valor, forma: e.forma });
         return x;
       });
@@ -325,12 +327,29 @@ export async function rotasFinanceiro(app: FastifyInstance) {
     } catch (x) { return falhar(res, x); }
   });
 
+  /**
+   * Simulação do cartão para as telas de recebimento (admin e vendedor): quanto passar na maquininha
+   * com a taxa embutida. Para o vendedor só devolve o valor a cobrar (não mostra a taxa).
+   */
+  app.get('/api/financeiro/simular-cartao', { preHandler: exigir('pedidos.proprios') }, async (req, res) => {
+    const q = z.object({
+      valor: dinheiroTxt, forma: z.enum(FORMAS_RECEBIMENTO), parcelas: z.coerce.number().int().min(1).max(24).default(1),
+      bandeira: z.enum(BANDEIRAS).default('VISA_MASTER'),
+    }).safeParse(req.query);
+    if (!q.success) return res.code(400).send({ erro: mensagemErro(q.error) });
+    const r = await simularCartao(app.db, req.usuario!.lojaId, d(q.data.valor), q.data.forma, q.data.parcelas, q.data.bandeira);
+    if (pode(req.usuario!, 'financeiro.gerenciar')) return { ...r, bandeira: NOME_BANDEIRA[q.data.bandeira] };
+    return { repasse: r.repasse, cobrado: r.cobrado, parcelas: r.parcelas, valorParcela: r.valorParcela };
+  });
+
   // ---------------------------------------------------------------- configurações
   app.get('/api/financeiro/config', admin, async (req) => {
     const lojaId = req.usuario!.lojaId;
     const { rows: taxas } = await app.db.execute(sql`
-      SELECT id, forma_pagamento AS forma, parcelas, taxa_mdr_pct AS mdr, taxa_antecip_pct AS antecipacao, dias_repasse AS "diasRepasse"
-        FROM taxas_pagamento ORDER BY array_position(ARRAY['PIX','DINHEIRO','BOLETO','DEBITO','CREDITO_AVISTA','CREDITO_PARCELADO']::text[], forma_pagamento::text), parcelas`);
+      SELECT id, forma_pagamento AS forma, parcelas, bandeira, taxa_mdr_pct AS mdr, taxa_antecip_pct AS antecipacao, dias_repasse AS "diasRepasse"
+        FROM taxas_pagamento
+       ORDER BY array_position(ARRAY['TODAS','VISA_MASTER','ELO_AMEX']::text[], bandeira::text),
+                array_position(ARRAY['PIX','DINHEIRO','BOLETO','DEBITO','CREDITO_AVISTA','CREDITO_PARCELADO']::text[], forma_pagamento::text), parcelas`);
     const { rows: recorrentes } = await app.db.execute(sql`
       SELECT r.id, r.descricao, r.plano_conta_id AS "planoContaId", pc.codigo AS "contaCodigo", pc.nome AS "contaNome",
              r.fornecedor_id AS "fornecedorId", f.nome_fantasia AS fornecedor, r.valor, r.dia_vencimento AS dia,
@@ -360,12 +379,16 @@ export async function rotasFinanceiro(app: FastifyInstance) {
   });
 
   app.post('/api/financeiro/taxas', admin, async (req, res) => {
-    const e = corpoOu400(z.object({ forma: z.enum(FORMAS_RECEBIMENTO), parcelas: z.coerce.number().int().min(1).max(24) }), req, res);
+    const e = corpoOu400(z.object({
+      forma: z.enum(FORMAS_RECEBIMENTO), parcelas: z.coerce.number().int().min(1).max(24), bandeira: z.enum(BANDEIRAS).default('VISA_MASTER'),
+    }), req, res);
     if (!e) return;
     const n = e.forma === 'CREDITO_PARCELADO' ? Math.max(2, e.parcelas) : 1;
-    await app.db.execute(sql`INSERT INTO taxas_pagamento (forma_pagamento, parcelas, dias_repasse)
-      VALUES (${e.forma}::forma_pagamento_enum, ${n}, ${['DEBITO'].includes(e.forma) ? 1 : e.forma.startsWith('CREDITO') ? 30 : 0})
-      ON CONFLICT (forma_pagamento, parcelas) DO NOTHING`);
+    const cartao = ['DEBITO', 'CREDITO_AVISTA', 'CREDITO_PARCELADO'].includes(e.forma);
+    await app.db.execute(sql`INSERT INTO taxas_pagamento (forma_pagamento, parcelas, dias_repasse, bandeira)
+      VALUES (${e.forma}::forma_pagamento_enum, ${n}, ${['DEBITO'].includes(e.forma) ? 1 : e.forma.startsWith('CREDITO') ? 30 : 0},
+              ${cartao ? e.bandeira : 'TODAS'})
+      ON CONFLICT (forma_pagamento, parcelas, bandeira) DO NOTHING`);
     return res.code(201).send({ ok: true });
   });
 

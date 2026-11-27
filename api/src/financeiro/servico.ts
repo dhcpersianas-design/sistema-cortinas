@@ -76,17 +76,48 @@ async function contaId(db: Exec, codigo: string): Promise<number> {
 export type Taxa = { pct: Decimal; antecipPct: Decimal; diasRepasse: number; cadastrada: boolean };
 
 /** Taxa da forma de pagamento (MDR + antecipação) e prazo de repasse. Sem cadastro = 0%. */
-export async function taxaDe(db: Exec, forma: string | null, parcelas = 1): Promise<Taxa> {
+export const BANDEIRAS = ['VISA_MASTER', 'ELO_AMEX'] as const;
+export type Bandeira = (typeof BANDEIRAS)[number];
+export const NOME_BANDEIRA: Record<string, string> = { VISA_MASTER: 'Visa/Mastercard', ELO_AMEX: 'Elo/Amex', TODAS: 'Todas' };
+
+export async function taxaDe(db: Exec, forma: string | null, parcelas = 1, bandeira: string | null = 'VISA_MASTER'): Promise<Taxa> {
   if (!forma) return { pct: d(0), antecipPct: d(0), diasRepasse: 0, cadastrada: false };
   const n = forma === 'CREDITO_PARCELADO' ? Math.max(2, parcelas) : 1;
+  const b = FORMAS_CARTAO.includes(forma) ? (bandeira ?? 'VISA_MASTER') : 'TODAS';
   const [t] = await linhas<{ mdr: string; antecip: string; dias: number }>(db, sql`
     SELECT taxa_mdr_pct::text AS mdr, taxa_antecip_pct::text AS antecip, dias_repasse AS dias
-      FROM taxas_pagamento WHERE forma_pagamento = ${forma}::forma_pagamento_enum AND parcelas = ${n}`);
+      FROM taxas_pagamento WHERE forma_pagamento = ${forma}::forma_pagamento_enum AND parcelas = ${n} AND bandeira = ${b}`);
   if (!t) return { pct: d(0), antecipPct: d(0), diasRepasse: FORMAS_CARTAO.includes(forma) ? 30 : 0, cadastrada: false };
   return { pct: d(t.mdr).plus(d(t.antecip)), antecipPct: d(t.antecip), diasRepasse: t.dias, cadastrada: true };
 }
 
 const valorTaxa = (bruto: Decimal, t: Taxa) => dinheiro(bruto.mul(t.pct).div(100));
+
+/**
+ * Repasse da taxa ao cliente (Gabriel, 27/11/2026): no cartão o cliente paga o valor com a taxa embutida,
+ * para a loja receber líquido o mesmo que no PIX. Não aparece como "taxa" para o cliente: só o valor final.
+ * Liga/desliga no parâmetro REPASSAR_TAXA_CARTAO (1 = liga).
+ */
+export async function repasseLigado(db: Exec, lojaId: string): Promise<boolean> {
+  return d((await parametro(db as Banco, lojaId, 'REPASSAR_TAXA_CARTAO')) ?? 0).gt(0);
+}
+/** Valor a passar na maquininha para sobrar `liquido` depois da taxa (arredonda o centavo para cima). */
+export function valorComRepasse(liquido: Decimal, taxaPct: Decimal): Decimal {
+  if (taxaPct.lte(0)) return dinheiro(liquido);
+  return liquido.div(d(1).minus(taxaPct.div(100))).toDecimalPlaces(2, 0); // para cima
+}
+/** Simulação para a tela: quanto passar na maquininha e o valor de cada parcela. */
+export async function simularCartao(db: Exec, lojaId: string, valor: Decimal, forma: string, parcelas: number, bandeira: string | null) {
+  const n = forma === 'CREDITO_PARCELADO' ? Math.max(2, parcelas) : 1;
+  const t = await taxaDe(db, forma, n, bandeira);
+  const repasse = FORMAS_CARTAO.includes(forma) && await repasseLigado(db, lojaId);
+  const cobrado = repasse ? valorComRepasse(valor, t.pct) : dinheiro(valor);
+  return {
+    repasse, taxaPct: t.pct.toFixed(2), cobrado: cobrado.toFixed(2), parcelas: n,
+    valorParcela: cobrado.div(n).toDecimalPlaces(2, 0).toFixed(2),
+    liquido: cobrado.minus(valorTaxa(cobrado, t)).toFixed(2),
+  };
+}
 
 // ------------------------------------------------------------------ contas a receber do pedido
 
@@ -125,7 +156,7 @@ type NovoLanc = {
   ordemCompraId?: string | null; forma?: string | null; parcela?: number; totalParcelas?: number;
   status?: 'PREVISTO' | 'LIQUIDADO'; liquidacao?: string | null; contaFinanceiraId?: string | null;
   cartao?: boolean; grupo?: string | null; usuarioId?: string | null; despesaRecorrenteId?: number | null; mesReferencia?: string | null;
-  observacoes?: string | null;
+  observacoes?: string | null; acrescimo?: Decimal;
 };
 
 /** Conta onde o dinheiro cai/sai quando ninguém escolheu: dinheiro vivo no caixa, o resto no banco. */
@@ -144,14 +175,14 @@ export async function inserirLancamento(db: Exec, l: NovoLanc): Promise<string> 
     INSERT INTO lancamentos_financeiros (loja_id, tipo, origem, pedido_id, cliente_id, fornecedor_id, vendedor_id, ordem_compra_id,
       plano_conta_id, conta_id, descricao, forma_pagamento, numero_parcela, total_parcelas, valor_bruto, taxa_transacao, valor_liquido,
       data_competencia, data_vencimento, data_liquidacao, status, cartao, grupo_pagamento_id, criado_por_id, liquidado_por_id,
-      despesa_recorrente_id, mes_referencia, observacoes)
+      despesa_recorrente_id, mes_referencia, observacoes, acrescimo_cliente)
     VALUES (${l.lojaId}, ${l.tipo}::tipo_lancamento_enum, ${l.origem}, ${l.pedidoId ?? null}, ${l.clienteId ?? null}, ${l.fornecedorId ?? null},
       ${l.vendedorId ?? null}, ${l.ordemCompraId ?? null}, ${pc}, ${l.contaFinanceiraId ?? null}, ${l.descricao.slice(0, 200)},
       ${l.forma ?? null}::forma_pagamento_enum, ${l.parcela ?? 1}, ${l.totalParcelas ?? 1}, ${l.valor.toFixed(2)}, ${taxa.toFixed(2)},
       ${l.valor.minus(taxa).toFixed(2)}, ${l.competencia}::date, ${l.vencimento}::date, ${l.liquidacao ?? null}::date,
       ${l.status ?? 'PREVISTO'}::status_lancamento_enum, ${l.cartao ?? false}, ${l.grupo ?? null}, ${l.usuarioId ?? null},
       ${l.status === 'LIQUIDADO' ? l.usuarioId ?? null : null}, ${l.despesaRecorrenteId ?? null}, ${l.mesReferencia ?? null}::date,
-      ${l.observacoes ?? null})
+      ${l.observacoes ?? null}, ${(l.acrescimo ?? d(0)).toFixed(2)})
     RETURNING id`);
   return r!.id;
 }
@@ -168,7 +199,9 @@ export async function criarPlanoRecebimento(db: Exec, pedidoId: string, usuarioI
   const base = { lojaId: p.lojaId, tipo: 'RECEITA' as const, planoConta: '1.01', competencia: p.dataVenda, pedidoId, clienteId: p.clienteId, usuarioId };
   const cartao = p.forma != null && ['CREDITO_AVISTA', 'CREDITO_PARCELADO'].includes(p.forma);
   const pct = cartao ? d(100) : d((await parametro(db as Banco, p.lojaId, 'SINAL_PADRAO_PCT')) ?? 50);
-  const taxa = await taxaDe(db, p.forma, p.parcelas);
+  // Taxa prevista: zero quando a taxa do cartão é repassada ao cliente (a loja recebe o valor cheio).
+  const repassa = p.forma != null && FORMAS_CARTAO.includes(p.forma) && await repasseLigado(db, p.lojaId);
+  const taxa = repassa ? await taxaDe(db, null) : await taxaDe(db, p.forma, p.parcelas);
   const sinal = dinheiro(total.mul(pct).div(100));
   const saldo = total.minus(sinal);
   if (sinal.gt(0)) {
@@ -207,6 +240,7 @@ async function mudarValorCobranca(db: Exec, id: string, novo: Decimal) {
 
 export type EntradaRecebimento = {
   valor: string; forma: string; parcelas?: number; data: string; contaFinanceiraId?: string | null; lancamentoId?: string | null;
+  bandeira?: string | null;
 };
 
 /**
@@ -240,19 +274,25 @@ export async function receberDoCliente(db: Exec, pedidoId: string, e: EntradaRec
     forma: e.forma, usuarioId, contaFinanceiraId: e.contaFinanceiraId ?? null,
   };
   const grupo = randomUUID();
+  let cobrado = valor;
   if (FORMAS_CARTAO.includes(e.forma)) {
     const n = e.forma === 'CREDITO_PARCELADO' ? Math.max(2, e.parcelas ?? 2) : 1;
-    const t = await taxaDe(db, e.forma, n);
-    const taxaTotal = valorTaxa(valor, t);
+    const bandeira = e.bandeira ?? 'VISA_MASTER';
+    const t = await taxaDe(db, e.forma, n, bandeira);
+    // Taxa repassada ao cliente: passa na maquininha o valor com a taxa embutida (cobrado); a dívida
+    // do cliente baixa pelo valor sem taxa. A diferença (acrescimo_cliente) é receita do pedido.
+    cobrado = (await repasseLigado(db, p.lojaId)) ? valorComRepasse(valor, t.pct) : valor;
+    const taxaTotal = valorTaxa(cobrado, t);
     // Com antecipação a operadora deposita tudo de uma vez; sem, uma parcela a cada 30 dias.
     const repasses = t.antecipPct.gt(0) ? 1 : n;
-    const brutos = ratear(valor, repasses);
+    const brutos = ratear(cobrado, repasses);
     const taxas = ratear(taxaTotal, repasses);
+    const acrescimos = ratear(cobrado.minus(valor), repasses);
     for (let k = 0; k < repasses; k++) {
       await inserirLancamento(db, {
         ...base, origem: 'CARTAO', cartao: true, grupo,
-        descricao: `Pedido ${p.numero} - ${rotulo} no ${NOME_FORMA[e.forma]!.toLowerCase()}${repasses > 1 ? ` (repasse ${k + 1}/${repasses})` : n > 1 ? ` em ${n}x (antecipado)` : ''}`,
-        valor: brutos[k]!, taxa: taxas[k]!, vencimento: somarDias(e.data, t.diasRepasse + 30 * k),
+        descricao: `Pedido ${p.numero} - ${rotulo} no ${NOME_FORMA[e.forma]!.toLowerCase()} ${NOME_BANDEIRA[bandeira] ?? ''}${repasses > 1 ? ` (repasse ${k + 1}/${repasses})` : n > 1 ? ` em ${n}x (antecipado)` : ''}`,
+        valor: brutos[k]!, taxa: taxas[k]!, acrescimo: acrescimos[k]!, vencimento: somarDias(e.data, t.diasRepasse + 30 * k),
         parcela: k + 1, totalParcelas: repasses,
       });
     }
@@ -264,7 +304,7 @@ export async function receberDoCliente(db: Exec, pedidoId: string, e: EntradaRec
     });
   }
   await liquidarRepassesVencidos(db);
-  return { grupo, emAbertoDepois: emAberto.minus(valor).toFixed(2) };
+  return { grupo, emAbertoDepois: emAberto.minus(valor).toFixed(2), cobrado: cobrado.toFixed(2) };
 }
 
 /** Repasse da maquininha cai sozinho no dia do vencimento [suposição: a operadora paga em dia]. */
@@ -283,7 +323,7 @@ export async function estornarRecebimento(db: Exec, lancamentoId: string, usuari
     throw new ErroFinanceiro('Só dá para desfazer um recebimento de pedido.', 409);
   }
   const grupo = await linhas<{ id: string; valor: string }>(db, sql`
-    SELECT id, valor_bruto::text AS valor FROM lancamentos_financeiros
+    SELECT id, (valor_bruto - acrescimo_cliente)::text AS valor FROM lancamentos_financeiros
      WHERE ${l.grupo ? sql`grupo_pagamento_id = ${l.grupo}` : sql`id = ${l.id}`} AND status <> 'CANCELADO'`);
   const total = grupo.reduce((s, g) => s.plus(d(g.valor)), d(0));
   await db.execute(sql`DELETE FROM lancamentos_financeiros WHERE id IN (${sql.join(grupo.map((g) => sql`${g.id}::uuid`), sql`, `)})`);
@@ -555,7 +595,7 @@ export async function lucroPedidos(db: Exec, pedidoIds: string[], lojaId: string
   const rows = await linhas<{
     pedidoId: string; numero: string; cliente: string; vendedor: string; status: string; dataVenda: string; venda: string;
     custoPrevisto: string; prevInstal: string; nOc: number; ocReal: string; nInst: number; instReal: string; outros: string;
-    taxas: string; comissaoLanc: string; nComissao: number; comissaoOrc: string; margemPrevista: string;
+    taxas: string; acrescimo: string; comissaoLanc: string; nComissao: number; comissaoOrc: string; margemPrevista: string;
   }>(db, sql`
     WITH ped AS (
       SELECT p.id, p.numero_pedido, p.valor_total_final, p.status_operacional, p.data_compra, p.orcamento_id,
@@ -576,6 +616,7 @@ export async function lucroPedidos(db: Exec, pedidoIds: string[], lojaId: string
              COALESCE(SUM(l.valor_bruto) FILTER (WHERE l.tipo = 'DESPESA' AND pc.grupo_dre = 'CMV' AND l.ordem_compra_id IS NULL
                AND l.origem <> 'INSTALACAO' AND l.status <> 'CANCELADO'), 0) AS outros,
              COALESCE(SUM(l.taxa_transacao) FILTER (WHERE l.tipo = 'RECEITA' AND l.status <> 'CANCELADO'), 0) AS taxas,
+             COALESCE(SUM(l.acrescimo_cliente) FILTER (WHERE l.tipo = 'RECEITA' AND l.status <> 'CANCELADO'), 0) AS acrescimo,
              COUNT(*) FILTER (WHERE l.origem = 'COMISSAO' AND l.status <> 'CANCELADO')::int AS n_com,
              COALESCE(SUM(l.valor_bruto) FILTER (WHERE l.origem = 'COMISSAO' AND l.status <> 'CANCELADO'), 0) AS comissao
         FROM lancamentos_financeiros l JOIN plano_contas pc ON pc.id = l.plano_conta_id
@@ -585,14 +626,15 @@ export async function lucroPedidos(db: Exec, pedidoIds: string[], lojaId: string
            ped.valor_total_final::text AS venda, ped.custo_total_previsto::text AS "custoPrevisto", COALESCE(inst.v, 0)::text AS "prevInstal",
            COALESCE(lanc.n_oc, 0) AS "nOc", COALESCE(lanc.oc_real, 0)::text AS "ocReal",
            COALESCE(lanc.n_inst, 0) AS "nInst", COALESCE(lanc.inst_real, 0)::text AS "instReal", COALESCE(lanc.outros, 0)::text AS outros,
-           COALESCE(lanc.taxas, 0)::text AS taxas, COALESCE(lanc.comissao, 0)::text AS "comissaoLanc", COALESCE(lanc.n_com, 0) AS "nComissao",
+           COALESCE(lanc.taxas, 0)::text AS taxas, COALESCE(lanc.acrescimo, 0)::text AS acrescimo, COALESCE(lanc.comissao, 0)::text AS "comissaoLanc", COALESCE(lanc.n_com, 0) AS "nComissao",
            ped.comissao_valor::text AS "comissaoOrc", ped.margem_prevista_pct::text AS "margemPrevista"
       FROM ped LEFT JOIN inst ON inst.id = ped.id LEFT JOIN lanc ON lanc.pedido_id = ped.id
      ORDER BY ped.data_compra, ped.numero_pedido`);
   const aliquota = d((await parametro(db as Banco, lojaId, 'ALIQUOTA_IMPOSTO_VENDA_PCT')) ?? 0);
   const amarelo = d((await parametro(db as Banco, lojaId, 'SEMAFORO_AMARELO_MIN_PCT')) ?? 35);
   return rows.map((r) => {
-    const venda = d(r.venda);
+    // Venda = valor do pedido + a taxa de cartão que o cliente pagou embutida.
+    const venda = d(r.venda).plus(d(r.acrescimo));
     const prev = d(r.custoPrevisto);
     const prevInst = d(r.prevInstal);
     const compras = r.nOc > 0 ? d(r.ocReal) : prev.minus(prevInst);

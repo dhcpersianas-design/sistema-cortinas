@@ -14,7 +14,7 @@ import {
 } from '../pedidos/servico.js';
 import { pdfOrdemCompra, pdfOrdemServico, pdfProducao, pdfTermoAceite } from '../pedidos/documentos.js';
 import { lerDocumento } from '../orcamentos/servico.js';
-import { FORMAS_RECEBIMENTO } from '../financeiro/servico.js';
+import { BANDEIRAS, FORMAS_RECEBIMENTO } from '../financeiro/servico.js';
 
 /**
  * Pedidos, compras, produção e instalação (especificação v1.1, seção 9 etapas 3 a 6).
@@ -146,7 +146,7 @@ export async function rotasPedidos(app: FastifyInstance) {
     if (!idValido(req, res)) return;
     const corpo = z.union([
       z.object({ semSinal: z.literal(true), motivo: textoOpcional(200) }),
-      z.object({ valor: dinheiroTxt, forma: z.enum(FORMAS_RECEBIMENTO), recebidoEm: dataTxt, parcelas: z.coerce.number().int().min(1).max(24).optional() }),
+      z.object({ valor: dinheiroTxt, forma: z.enum(FORMAS_RECEBIMENTO), recebidoEm: dataTxt, parcelas: z.coerce.number().int().min(1).max(24).optional(), bandeira: z.enum(BANDEIRAS).nullish() }),
     ]).safeParse(req.body);
     if (!corpo.success) return res.code(400).send({ erro: 'Informe o valor, a forma e a data do sinal (ou libere sem sinal).' });
     try {

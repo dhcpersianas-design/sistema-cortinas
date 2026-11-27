@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { classeSelect } from '@/components/cadastro/campos';
@@ -37,47 +37,100 @@ export function situacao(l: Lancamento): { texto: string; classe: string } {
 
 export const dataCurta = (v?: string | null) => (v ? v.slice(0, 10).split('-').reverse().join('/') : '');
 
-/** Receber do cliente (cobrança de um pedido): valor, forma, parcelas no crédito e data. */
+export const FORMAS_CARTAO_WEB = ['DEBITO', 'CREDITO_AVISTA', 'CREDITO_PARCELADO'];
+export const BANDEIRAS_WEB: [string, string][] = [['VISA_MASTER', 'Visa / Mastercard'], ['ELO_AMEX', 'Elo / Amex']];
+
+type Simulacao = { repasse: boolean; cobrado: string; parcelas: number; valorParcela: string; taxaPct?: string };
+
+/**
+ * Parcelas, bandeira e "quanto passar na maquininha" (com a taxa embutida, quando o repasse está ligado).
+ * `valor` é o quanto abate da dívida do cliente; o cliente paga `cobrado` no cartão.
+ */
+export function CamposCartao({ forma, valor, parcelas, setParcelas, bandeira, setBandeira }: {
+  forma: string; valor: string; parcelas: number; setParcelas: (n: number) => void; bandeira: string; setBandeira: (b: string) => void;
+}) {
+  const [sim, setSim] = useState<Simulacao | null>(null);
+  const cartao = FORMAS_CARTAO_WEB.includes(forma);
+  const v = Number(valor.replace(/\./g, '').replace(',', '.'));
+  useEffect(() => {
+    if (!cartao || !(v > 0)) { setSim(null); return; }
+    const q = new URLSearchParams({ valor: v.toFixed(2), forma, parcelas: String(parcelas), bandeira });
+    let vivo = true;
+    const t = setTimeout(() => {
+      api<Simulacao>(`/api/financeiro/simular-cartao?${q}`).then((r) => { if (vivo) setSim(r); }).catch(() => { if (vivo) setSim(null); });
+    }, 250);
+    return () => { vivo = false; clearTimeout(t); };
+  }, [cartao, v, forma, parcelas, bandeira]);
+  if (!cartao) return null;
+  return (
+    <>
+      {forma === 'CREDITO_PARCELADO' && (
+        <label className="flex flex-col gap-1">Parcelas
+          <select className={classeSelect} value={parcelas} onChange={(e) => setParcelas(Number(e.target.value))}>
+            {Array.from({ length: 11 }, (_, i) => i + 2).map((n) => <option key={n} value={n}>{n}x</option>)}
+          </select>
+        </label>
+      )}
+      <label className="flex flex-col gap-1">Bandeira
+        <select className={classeSelect} value={bandeira} onChange={(e) => setBandeira(e.target.value)}>
+          {BANDEIRAS_WEB.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+        </select>
+      </label>
+      {sim && (
+        <p className="rounded-md border border-sky-500/30 bg-sky-500/10 px-2 py-1.5 text-sm sm:col-span-full">
+          Passe na maquininha: <strong>{moeda(sim.cobrado)}</strong>
+          {sim.parcelas > 1 ? <> ({sim.parcelas}x de <strong>{moeda(sim.valorParcela)}</strong>)</> : null}
+          {sim.repasse && Number(sim.cobrado) > v
+            ? <span className="block text-xs text-muted-foreground">Já com a taxa da maquininha embutida: a loja recebe {moeda(v.toFixed(2))}, como no PIX. Para o cliente, informe só o valor final.</span>
+            : null}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** Receber do cliente (cobrança de um pedido): valor, forma, parcelas e bandeira no cartão, data. */
 export function FormReceber({ pedidoId, lancamentoId, valorPadrao, formaPadrao, onFeito, onErro, onCancelar }: {
   pedidoId: string; lancamentoId?: string; valorPadrao: string; formaPadrao?: string | null;
   onFeito: (msg: string) => void; onErro: (m: string) => void; onCancelar?: () => void;
 }) {
   const [forma, setForma] = useState(formaPadrao && formaPadrao !== 'MISTO' ? formaPadrao : 'PIX');
+  const [valor, setValor] = useState(valorPadrao.replace('.', ','));
+  const [parcelas, setParcelas] = useState(3);
+  const [bandeira, setBandeira] = useState('VISA_MASTER');
   const [ocupado, setOcupado] = useState(false);
+  const cartao = FORMAS_CARTAO_WEB.includes(forma);
   return (
-    <form className="grid gap-2 rounded-md border bg-muted/30 p-3 text-sm sm:grid-cols-5" onSubmit={async (e) => {
+    <form className="grid gap-2 rounded-md border bg-muted/30 p-3 text-sm sm:grid-cols-3 lg:grid-cols-6" onSubmit={async (e) => {
       e.preventDefault();
       const f = new FormData(e.currentTarget);
       setOcupado(true);
       try {
-        const r = await api<{ emAbertoDepois: string }>(`/api/pedidos/${pedidoId}/receber`, {
+        const r = await api<{ emAbertoDepois: string; cobrado: string }>(`/api/pedidos/${pedidoId}/receber`, {
           method: 'POST',
-          corpo: { valor: f.get('valor'), forma, parcelas: forma === 'CREDITO_PARCELADO' ? Number(f.get('parcelas')) : undefined, data: f.get('data'), lancamentoId },
+          corpo: {
+            valor, forma, parcelas: forma === 'CREDITO_PARCELADO' ? parcelas : undefined, bandeira: cartao ? bandeira : undefined,
+            data: f.get('data'), lancamentoId,
+          },
         });
         onFeito(`Recebimento registrado. O cliente ainda deve ${moeda(r.emAbertoDepois)}.`);
       } catch (x) { onErro((x as Error).message); }
       finally { setOcupado(false); }
     }}>
-      <label className="flex flex-col gap-1">Valor<Input name="valor" inputMode="decimal" required defaultValue={valorPadrao.replace('.', ',')} /></label>
+      <label className="flex flex-col gap-1">Valor (abate da dívida)<Input inputMode="decimal" required value={valor} onChange={(e) => setValor(e.target.value)} /></label>
       <label className="flex flex-col gap-1">Forma
         <select className={classeSelect} value={forma} onChange={(e) => setForma(e.target.value)}>
           {FORMAS_RECEB.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
         </select>
       </label>
-      {forma === 'CREDITO_PARCELADO' ? (
-        <label className="flex flex-col gap-1">Parcelas
-          <select name="parcelas" className={classeSelect} defaultValue="3">
-            {Array.from({ length: 11 }, (_, i) => i + 2).map((n) => <option key={n} value={n}>{n}x</option>)}
-          </select>
-        </label>
-      ) : <span className="hidden sm:block" />}
+      <CamposCartao forma={forma} valor={valor} parcelas={parcelas} setParcelas={setParcelas} bandeira={bandeira} setBandeira={setBandeira} />
       <label className="flex flex-col gap-1">Data<Input type="date" name="data" required defaultValue={hojeISO()} /></label>
       <div className="flex items-end gap-2">
         <Button disabled={ocupado}>Receber</Button>
         {onCancelar && <Button type="button" variant="ghost" onClick={onCancelar}>Fechar</Button>}
       </div>
-      {['DEBITO', 'CREDITO_AVISTA', 'CREDITO_PARCELADO'].includes(forma) && (
-        <p className="text-xs text-muted-foreground sm:col-span-5">No cartão o cliente fica quitado na hora; o sistema lança os repasses da maquininha (com a taxa) e marca cada um como recebido no dia em que cai.</p>
+      {cartao && (
+        <p className="text-xs text-muted-foreground sm:col-span-full">No cartão o cliente fica quitado na hora; o sistema lança os repasses da maquininha e marca cada um como recebido no dia em que cai.</p>
       )}
     </form>
   );

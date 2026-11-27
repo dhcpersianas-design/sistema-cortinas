@@ -9,7 +9,7 @@ import { moeda } from '../orcamentos/formato';
 import { FORMAS_RECEB, nomeForma } from './comum';
 
 export type Config = {
-  taxas: { id: number; forma: string; parcelas: number; mdr: string; antecipacao: string; diasRepasse: number }[];
+  taxas: { id: number; forma: string; parcelas: number; bandeira: string; mdr: string; antecipacao: string; diasRepasse: number }[];
   contas: { id: string; nome: string; tipo: string; saldoInicial: string; saldo: string; ativo: boolean }[];
   recorrentes: { id: number; descricao: string; planoContaId: number; contaCodigo: string; contaNome: string; fornecedorId: string | null; fornecedor: string | null; valor: string; dia: number; inicio: string; ativo: boolean }[];
   planoContas: { id: number; codigo: string; nome: string; grupo: string }[];
@@ -41,13 +41,20 @@ export function Configuracoes() {
 
 type P = { c: Config; onFeito: (m: string) => void; onErro: (e: unknown) => void };
 
+const GRUPOS_TAXA: [string, string][] = [['TODAS', 'PIX, dinheiro e boleto'], ['VISA_MASTER', 'Visa / Mastercard'], ['ELO_AMEX', 'Elo / Amex']];
+
 function Taxas({ c, onFeito, onErro }: P) {
-  const [nova, setNova] = useState('');
+  const repasse = Number(c.parametros.find((p) => p.chave === 'REPASSAR_TAXA_CARTAO')?.valor ?? 0) > 0;
   return (
     <Card>
       <CardHeader><CardTitle>Taxas da maquininha e do boleto</CardTitle></CardHeader>
       <CardContent className="space-y-3 text-sm">
-        <p className="text-muted-foreground">Copie da sua maquininha. A taxa entra no cálculo da margem do orçamento e no valor que realmente cai na conta. &quot;Dias para cair&quot; = em quantos dias o dinheiro chega (no parcelado, cada parcela cai 30 dias depois da anterior; com taxa de antecipação, cai tudo junto).</p>
+        <p className="text-muted-foreground">
+          {repasse
+            ? 'A taxa do cartão está sendo embutida no valor cobrado do cliente (Regras do negócio): a loja recebe o mesmo que no PIX e a margem do orçamento não muda. '
+            : 'A taxa entra no cálculo da margem do orçamento e no valor que realmente cai na conta. '}
+          &quot;Dias para cair&quot; = em quantos dias o dinheiro chega (no parcelado, cada parcela cai 30 dias depois da anterior; com taxa de antecipação, cai tudo junto).
+        </p>
         <form className="space-y-1" onSubmit={async (e) => {
           e.preventDefault();
           const f = new FormData(e.currentTarget);
@@ -56,26 +63,26 @@ function Taxas({ c, onFeito, onErro }: P) {
             onFeito('Taxas salvas.');
           } catch (x) { onErro(x); }
         }}>
-          <div className="grid grid-cols-[1fr_5rem_5rem_5rem] gap-2 text-xs text-muted-foreground"><span>Forma</span><span>Taxa %</span><span>Antecip. %</span><span>Dias p/ cair</span></div>
-          {c.taxas.map((t) => (
-            <div key={t.id} className="grid grid-cols-[1fr_5rem_5rem_5rem] items-center gap-2">
-              <span>{nomeForma(t.forma)}{t.forma === 'CREDITO_PARCELADO' ? ` ${t.parcelas}x` : ''}</span>
-              <Input name={`mdr${t.id}`} inputMode="decimal" defaultValue={semZeros(t.mdr)} />
-              <Input name={`ant${t.id}`} inputMode="decimal" defaultValue={semZeros(t.antecipacao)} />
-              <Input name={`dias${t.id}`} inputMode="numeric" defaultValue={t.diasRepasse} />
-            </div>
-          ))}
+          {GRUPOS_TAXA.map(([b, titulo]) => {
+            const linhas = c.taxas.filter((t) => t.bandeira === b);
+            if (linhas.length === 0) return null;
+            return (
+              <div key={b} className="space-y-1 pb-2">
+                <div className="pt-2 font-medium">{titulo}</div>
+                <div className="grid grid-cols-[1fr_4.5rem_4.5rem_4.5rem] gap-2 text-xs text-muted-foreground"><span>Forma</span><span>Taxa %</span><span>Antecip. %</span><span>Dias p/ cair</span></div>
+                {linhas.map((t) => (
+                  <div key={t.id} className="grid grid-cols-[1fr_4.5rem_4.5rem_4.5rem] items-center gap-2">
+                    <span>{nomeForma(t.forma)}{t.forma === 'CREDITO_PARCELADO' ? ` ${t.parcelas}x` : ''}</span>
+                    <Input name={`mdr${t.id}`} inputMode="decimal" defaultValue={semZeros(t.mdr)} />
+                    <Input name={`ant${t.id}`} inputMode="decimal" defaultValue={semZeros(t.antecipacao)} />
+                    <Input name={`dias${t.id}`} inputMode="numeric" defaultValue={t.diasRepasse} />
+                  </div>
+                ))}
+              </div>
+            );
+          })}
           <Button className="mt-2">Salvar taxas</Button>
         </form>
-        <div className="flex flex-wrap items-center gap-2">
-          <select className={`${classeSelect} w-52`} value={nova} onChange={(e) => setNova(e.target.value)}>
-            <option value="">Incluir parcelado em…</option>
-            {Array.from({ length: 12 }, (_, i) => i + 13).map((n) => <option key={n} value={n}>{n}x</option>)}
-          </select>
-          {nova && <Button variant="outline" onClick={async () => {
-            try { await api('/api/financeiro/taxas', { method: 'POST', corpo: { forma: 'CREDITO_PARCELADO', parcelas: Number(nova) } }); setNova(''); onFeito('Linha incluída.'); } catch (x) { onErro(x); }
-          }}>Incluir</Button>}
-        </div>
       </CardContent>
     </Card>
   );

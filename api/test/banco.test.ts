@@ -31,6 +31,7 @@ describe('migrações e seed da especificação', () => {
       PRAZO_ENTREGA_DIAS_UTEIS: '14.0000',
       SEMAFORO_AMARELO_MIN_PCT: '35.0000',
       SEMAFORO_VERDE_MIN_PCT: '45.0000',
+      REPASSAR_TAXA_CARTAO: '1.0000',
       SINAL_PADRAO_PCT: '50.0000',
       VALIDADE_ORCAMENTO_DIAS: '15.0000',
     });
