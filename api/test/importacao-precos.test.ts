@@ -94,7 +94,7 @@ describe('importação de preços', () => {
   });
 
   it('aplica só as linhas sem erro, com histórico', async () => {
-    const r = await post(admin, '/api/catalogo/importacao/aplicar', corpo('precos.xlsx', readFileSync(FIXTURE)));
+    const r = await post(admin, '/api/catalogo/importacao/aplicar', { ...corpo('precos.xlsx', readFileSync(FIXTURE)), confirmacao: 'ALTERAR' }); // 11 alterações: trava de segurança
     expect(r.statusCode, r.body).toBe(201);
     importacaoId = r.json().importacaoId;
 
@@ -115,7 +115,7 @@ describe('importação de preços', () => {
   });
 
   it('mandar a mesma planilha de novo não muda nada', async () => {
-    const r = await post(admin, '/api/catalogo/importacao/aplicar', corpo('precos.xlsx', readFileSync(FIXTURE)));
+    const r = await post(admin, '/api/catalogo/importacao/aplicar', { ...corpo('precos.xlsx', readFileSync(FIXTURE)), confirmacao: 'ALTERAR' });
     expect(r.statusCode).toBe(400);
     expect(r.json().erro).toContain('Nada para aplicar');
   });
@@ -123,7 +123,7 @@ describe('importação de preços', () => {
   it('desfazer volta os preços, inativa o produto criado e mantém o que foi mexido depois', async () => {
     const tec2 = await produto('TRI-002');
     await pool.query(`UPDATE produtos SET preco_venda_unitario = 999 WHERE sku = 'SRV-001'`); // alguém mexeu depois
-    const r = await post(admin, `/api/catalogo/importacoes/${importacaoId}/desfazer`, {});
+    const r = await post(admin, `/api/catalogo/importacoes/${importacaoId}/desfazer`, { confirmacao: 'ALTERAR' });
     expect(r.statusCode, r.body).toBe(200);
     expect(r.json().mantidos).toEqual(['SRV-001 (alterado depois da importação)']);
     expect(r.json().restaurados).toBe(10);
@@ -135,7 +135,7 @@ describe('importação de preços', () => {
     const b = (await pool.query(`SELECT COUNT(*)::int n FROM precos_barra_trilho WHERE produto_id = $1`, [tec2.id])).rows[0];
     expect(b.n).toBe(0);
 
-    const de2 = await post(admin, `/api/catalogo/importacoes/${importacaoId}/desfazer`, {});
+    const de2 = await post(admin, `/api/catalogo/importacoes/${importacaoId}/desfazer`, { confirmacao: 'ALTERAR' });
     expect(de2.statusCode).toBe(409);
   });
 

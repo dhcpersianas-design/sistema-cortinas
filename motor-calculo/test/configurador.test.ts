@@ -150,6 +150,11 @@ describe('decisões do Gabriel (27/11/2026)', () => {
     expect(garantiaMesesProduto({ nome: 'Tela Solar 3%', metadata: {}, categoria: 'Persianas › Rolo › Double Vision' })).toBe(24);
     expect(garantiaMesesProduto({ nome: 'Tela Solar 3%', metadata: {}, categoria: 'Persianas › Painel' })).toBe(24);
     expect(garantiaMesesProduto({ nome: 'Horizontal 25mm', metadata: {}, categoria: 'Persianas › Horizontal' })).toBe(12);
+    // Caixa Box e Shangrilá: 1 ano, mesmo dentro de Rolo.
+    expect(garantiaMesesProduto({ nome: 'Tela Solar', metadata: {}, categoria: 'Persianas › Rolo › Caixa Box' })).toBe(12);
+    expect(garantiaMesesProduto({ nome: 'Persiana Rolo Shangrilá', metadata: {}, categoria: 'Persianas › Rolo › Shangrilá' })).toBe(12);
+    expect(garantiaMesesProduto({ nome: 'Tela Solar', metadata: {}, categoria: 'Persianas › Rolo › Rolo' })).toBe(24);
+    expect(garantiaMesesProduto({ nome: 'Shangrilá', metadata: { garantia_meses: 24 }, categoria: 'Persianas › Rolo › Shangrilá' })).toBe(24);
     expect(garantiaMesesProduto({ nome: 'Persiana Double Vision', metadata: {} })).toBe(24);
     expect(garantiaMesesProduto({ nome: 'Persiana Painel Japonês', metadata: {} })).toBe(24);
     expect(garantiaMesesProduto({ nome: 'Motor Tubular X', metadata: {} })).toBe(60);

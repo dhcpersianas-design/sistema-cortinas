@@ -1,4 +1,6 @@
 'use client';
+import { ALTERACAO_EM_MASSA } from '@sistema/motor-calculo/navegador';
+import { ConfirmarAlteracao } from '@/components/confirmar-alteracao';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -52,6 +54,8 @@ export function ImportarPrecos() {
   const [ok, setOk] = useState<string | null>(null);
   const [historico, setHistorico] = useState<Importacao[] | null>(null);
   const [confirmarDesfazer, setConfirmarDesfazer] = useState<string | null>(null);
+  /** Caixinha ALTERAR (mais de 10 alterações): aplicar a planilha ou desfazer uma importação. */
+  const [pedirAlterar, setPedirAlterar] = useState<{ tipo: 'aplicar' } | { tipo: 'desfazer'; id: string; n: number } | null>(null);
 
   const carregarHistorico = useCallback(() => {
     api<{ importacoes: Importacao[] }>('/api/catalogo/importacoes').then((r) => setHistorico(r.importacoes)).catch(() => setHistorico([]));
@@ -72,11 +76,13 @@ export function ImportarPrecos() {
     } catch (e) { setErro((e as Error).message); } finally { setCarregando(false); }
   }
 
-  async function aplicar() {
+  async function aplicar(confirmacao?: string) {
     if (!arquivo) return;
+    if (!confirmacao && aplicaveis > ALTERACAO_EM_MASSA.limite) { setPedirAlterar({ tipo: 'aplicar' }); return; }
     setErro(null); setOk(null); setCarregando(true);
     try {
-      const r = await api<{ previa: Previa }>('/api/catalogo/importacao/aplicar', { method: 'POST', corpo: { arquivo: arquivo.nome, conteudo: arquivo.conteudo } });
+      const r = await api<{ previa: Previa }>('/api/catalogo/importacao/aplicar', { method: 'POST', corpo: { arquivo: arquivo.nome, conteudo: arquivo.conteudo, confirmacao } });
+      setPedirAlterar(null);
       const { criar, atualizar, erros } = r.previa.resumo;
       setOk(`Pronto! ${criar} item(ns) novo(s) e ${atualizar} atualizado(s).${erros ? ` ${erros} linha(s) com erro ficaram de fora.` : ''} Se precisar, dá para desfazer logo abaixo.`);
       setPrevia(null); setArquivo(null);
@@ -84,10 +90,12 @@ export function ImportarPrecos() {
     } catch (e) { setErro((e as Error).message); } finally { setCarregando(false); }
   }
 
-  async function desfazer(id: string) {
+  async function desfazer(id: string, n: number, confirmacao?: string) {
+    if (!confirmacao && n > ALTERACAO_EM_MASSA.limite) { setConfirmarDesfazer(null); setPedirAlterar({ tipo: 'desfazer', id, n }); return; }
     setErro(null); setOk(null); setConfirmarDesfazer(null); setCarregando(true);
     try {
-      const r = await api<{ restaurados: number; mantidos: string[] }>(`/api/catalogo/importacoes/${id}/desfazer`, { method: 'POST', corpo: {} });
+      const r = await api<{ restaurados: number; mantidos: string[] }>(`/api/catalogo/importacoes/${id}/desfazer`, { method: 'POST', corpo: { confirmacao } });
+      setPedirAlterar(null);
       setOk(`Importação desfeita: ${r.restaurados} item(ns) voltaram ao preço anterior.${r.mantidos.length
         ? ` Mantidos (foram alterados depois da importação): ${r.mantidos.join('; ')}.` : ''}`);
       carregarHistorico();
@@ -191,7 +199,7 @@ export function ImportarPrecos() {
               </div>
             )}
             <div className="flex flex-wrap items-center gap-3">
-              <Button onClick={aplicar} disabled={carregando || aplicaveis === 0}>
+              <Button onClick={() => aplicar()} disabled={carregando || aplicaveis === 0}>
                 {carregando ? 'Aplicando…' : aplicaveis === 0 ? 'Nada para aplicar' : `Aplicar ${aplicaveis} alteração(ões)`}
               </Button>
               <Button variant="ghost" onClick={() => { setPrevia(null); setArquivo(null); }} disabled={carregando}>Cancelar</Button>
@@ -224,7 +232,7 @@ export function ImportarPrecos() {
                   </div>
                   {!h.desfeitaEm && (confirmarDesfazer === h.id ? (
                     <div className="flex gap-2">
-                      <Button size="sm" variant="destructive" onClick={() => desfazer(h.id)} disabled={carregando}>Confirmar desfazer</Button>
+                      <Button size="sm" variant="destructive" onClick={() => desfazer(h.id, h.alteracoes)} disabled={carregando}>Confirmar desfazer</Button>
                       <Button size="sm" variant="ghost" onClick={() => setConfirmarDesfazer(null)}>Não</Button>
                     </div>
                   ) : (
@@ -236,6 +244,21 @@ export function ImportarPrecos() {
           )}
         </CardContent>
       </Card>
+      {pedirAlterar && previa && pedirAlterar.tipo === 'aplicar' && (
+        <ConfirmarAlteracao titulo={`Aplicar ${aplicaveis} alterações de preço?`} ocupado={carregando}
+          aoCancelar={() => setPedirAlterar(null)} aoContinuar={(p) => aplicar(p)}>
+          <p className="text-sm">
+            {previa.resumo.criar} item(ns) novo(s) e {previa.resumo.atualizar} atualizado(s). Confira a prévia abaixo antes de continuar.
+            {previa.resumo.erros > 0 && ` ${previa.resumo.erros} linha(s) com erro ficam de fora.`}
+          </p>
+        </ConfirmarAlteracao>
+      )}
+      {pedirAlterar && pedirAlterar.tipo === 'desfazer' && (
+        <ConfirmarAlteracao titulo={`Desfazer ${pedirAlterar.n} alterações?`} ocupado={carregando}
+          aoCancelar={() => setPedirAlterar(null)} aoContinuar={(p) => desfazer(pedirAlterar.id, pedirAlterar.n, p)}>
+          <p className="text-sm">Os preços voltam ao que eram antes desta importação.</p>
+        </ConfirmarAlteracao>
+      )}
     </div>
   );
 }

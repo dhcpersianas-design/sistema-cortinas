@@ -92,12 +92,39 @@ describe('categorias e markup por categoria', () => {
     expect(lista.find((p) => p.sku === 'TRI-001')).toMatchObject({ perfil: 'TRILHO', categoriaPrincipal: 'Acessórios Cortinas' });
   });
 
-  it('markup da categoria vale no cadastro; subcategoria vazia herda; subcategoria pode ter o seu', async () => {
-    expect((await req(admin, 'PATCH', '/api/catalogo/categorias/1', { markupPct: '150' })).statusCode).toBe(200);
-    expect((await req(admin, 'PATCH', '/api/catalogo/categorias/6', { markupPct: '80,5' })).json().categoria.markupEfetivo).toBe('80.5');
-    expect((await req(admin, 'PATCH', '/api/catalogo/categorias/28', { markupPct: 120 })).json().categoria.markupEfetivo).toBe('120');
-    expect((await req(admin, 'PATCH', '/api/catalogo/categorias/6', { markupPct: null })).statusCode).toBe(400); // principal precisa
+  it('markup só muda em subcategoria (Persianas e Rolo inteiros não)', async () => {
+    for (const id of [6, 24, 10]) {
+      const r = await req(admin, 'PATCH', `/api/catalogo/categorias/${id}`, { markupPct: 90 });
+      expect(r.statusCode).toBe(400);
+      expect(r.json().erro).toContain('Escolha uma subcategoria');
+      expect((await req(admin, 'POST', `/api/catalogo/categorias/${id}/markup/previa`, { markupPct: 90 })).statusCode).toBe(400);
+    }
+  });
 
+  it('mudar o markup da subcategoria recalcula a venda dos produtos dela, com histórico', async () => {
+    const previa = (await req(admin, 'POST', '/api/catalogo/categorias/28/markup/previa', { markupPct: '120' })).json();
+    expect(previa).toMatchObject({ caminho: 'Persianas › Rolo › Double Vision', markupAntes: '100', markupDepois: '120', afetados: 1 });
+    expect(previa.linhas[0]).toMatchObject({ sku: 'PER-003', vendaAntes: '490.0000', vendaDepois: '462.0000' });
+    expect((await produto('PER-003')).preco_venda_unitario).toBe('490.0000'); // prévia não grava
+
+    let r = await req(admin, 'PATCH', '/api/catalogo/categorias/28', { markupPct: 120 });
+    expect(r.statusCode).toBe(428); // markup sempre pede ALTERAR
+    expect((await produto('PER-003')).preco_venda_unitario).toBe('490.0000');
+    r = await req(admin, 'PATCH', '/api/catalogo/categorias/28', { markupPct: 120, confirmacao: 'ALTERAR' });
+    expect(r.statusCode, r.body).toBe(200);
+    expect(r.json()).toMatchObject({ alterados: 1, categoria: { markupEfetivo: '120' } });
+    const p = await produto('PER-003');
+    expect([p.custo_unitario, p.preco_venda_unitario]).toEqual(['210.0000', '462.0000']);
+    const h = (await pool.query(`SELECT venda_anterior, venda_nova, motivo FROM historico_precos_produto WHERE produto_id = $1`, [p.id])).rows;
+    expect(h).toEqual([{ venda_anterior: '490.0000', venda_nova: '462.0000', motivo: 'Markup de Persianas › Rolo › Double Vision: 100% → 120%' }]);
+    // PER-001/002 (Rolo › Rolo) não mudam.
+    expect((await produto('PER-001')).preco_venda_unitario).toBe('320.0000');
+  });
+
+  it('categoria sem subcategorias (Tecidos) pode mudar; produto novo usa o markup; vazio herda', async () => {
+    expect((await req(admin, 'PATCH', '/api/catalogo/categorias/1', { markupPct: '150', confirmacao: 'ALTERAR' })).json().alterados).toBe(3);
+    expect((await produto('TEC-001')).preco_venda_unitario).toBe('105.0000');
+    await pool.query('UPDATE categorias_produto SET markup_pct = 80.5 WHERE id = 6'); // base da principal (não muda pela tela)
     const novo = async (sku: string, categoriaId: number) => {
       const r = await req(admin, 'POST', '/api/catalogo/produtos', { sku, categoriaId, nome: sku, unidadeMedida: 'M2', custoUnitario: '100' });
       expect(r.statusCode, r.body).toBe(201);
@@ -108,6 +135,26 @@ describe('categorias e markup por categoria', () => {
     expect(await novo('PDV-1', 28)).toBe('220.0000'); // Double Vision 120%
     expect(await novo('SRV-X', 9)).toBe('200.0000');  // Serviços 100%
     expect((await req(admin, 'GET', '/api/catalogo/preco-sugerido?custo=10&categoriaId=1')).json()).toMatchObject({ markupPct: '150', precoVendaSugerido: '25.00' });
+  });
+
+  it('mudar markup: só com a palavra ALTERAR (com 12 produtos)', async () => {
+    for (let i = 1; i <= 11; i++) {
+      await req(admin, 'POST', '/api/catalogo/produtos', { sku: `HZ-${i}`, categoriaId: 20, nome: `Horizontal ${i}`, unidadeMedida: 'M2', custoUnitario: '10', precoVendaUnitario: '20' });
+    }
+    expect((await req(admin, 'POST', '/api/catalogo/categorias/20/markup/previa', { markupPct: 50 })).json().afetados).toBe(12); // 11 + PH-1
+    let r = await req(admin, 'PATCH', '/api/catalogo/categorias/20', { markupPct: 50 });
+    expect(r.statusCode).toBe(428);
+    expect(r.json()).toMatchObject({ precisaConfirmacao: true, quantidade: 12 });
+    expect((await produto('HZ-1')).preco_venda_unitario).toBe('20.0000');
+    r = await req(admin, 'PATCH', '/api/catalogo/categorias/20', { markupPct: 50, confirmacao: 'alterar errado' });
+    expect(r.statusCode).toBe(428);
+    r = await req(admin, 'PATCH', '/api/catalogo/categorias/20', { markupPct: 50, confirmacao: 'ALTERAR' });
+    expect(r.statusCode, r.body).toBe(200);
+    expect(r.json().alterados).toBe(12);
+    expect((await produto('HZ-1')).preco_venda_unitario).toBe('15.0000');
+    // Voltar a herdar (vazio) também recalcula: Persianas 80,5%.
+    r = await req(admin, 'PATCH', '/api/catalogo/categorias/20', { markupPct: null, confirmacao: 'ALTERAR' });
+    expect((await produto('HZ-1')).preco_venda_unitario).toBe('18.0500');
   });
 
   it('persiana exige subcategoria (e o tipo, dentro de Rolo)', async () => {
@@ -130,12 +177,16 @@ describe('categorias e markup por categoria', () => {
     expect((await req(admin, 'PATCH', '/api/catalogo/categorias/6', { nome: 'Outro' })).statusCode).toBe(400);
   });
 
-  it('tabela de barras do trilho usa o markup de Acessórios Cortinas', async () => {
-    await req(admin, 'PATCH', '/api/catalogo/categorias/10', { markupPct: 50 });
+  it('trilho: markup de Trilhos e Varões vale na tabela de barras e o recálculo também muda as barras', async () => {
     const { id } = await produto('TRI-001');
-    const r = await req(admin, 'PUT', `/api/catalogo/produtos/${id}/barras`, { barras: [{ tamanhoM: 1, custo: '10' }] });
+    let r = await req(admin, 'PUT', `/api/catalogo/produtos/${id}/barras`, { barras: [{ tamanhoM: 1, custo: '10' }] });
+    expect(r.json().barras[0]).toMatchObject({ tamanhoM: 1, venda: '20.0000' });
+    r = await req(admin, 'PATCH', '/api/catalogo/categorias/2', { markupPct: 50, confirmacao: 'ALTERAR' });
     expect(r.statusCode, r.body).toBe(200);
-    expect(r.json().barras[0]).toMatchObject({ tamanhoM: 1, venda: '15.0000' });
+    expect(r.json().alterados).toBe(4); // TRI-001/002/003 + barra de 1 m
+    const b = (await pool.query(`SELECT venda FROM precos_barra_trilho WHERE produto_id = $1`, [id])).rows;
+    expect(b).toEqual([{ venda: '15.0000' }]);
+    expect((await produto('TRI-001')).preco_venda_unitario).toBe('24.0000');
   });
 
   it('importação: venda vazia e recálculo usam o markup da categoria; categoria pelo nome da subcategoria', async () => {
@@ -150,13 +201,30 @@ describe('categorias e markup por categoria', () => {
     expect(r.statusCode, r.body).toBe(200);
     const itens = r.json().itens as { sku: string; acao: string; mudancas: string[]; erros: string[]; avisos: string[] }[];
     const it_ = (sku: string) => itens.find((i) => i.sku === sku)!;
-    expect(it_('TEC-001').mudancas).toEqual(['Custo: R$ 42,00 → R$ 50,00', 'Venda: R$ 110,00 → R$ 125,00']);
+    expect(it_('TEC-001').mudancas).toEqual(['Custo: R$ 42,00 → R$ 50,00', 'Venda: R$ 105,00 → R$ 125,00']);
     expect(it_('TEC-001').avisos.join()).toContain('markup da categoria, 150%');
     expect(it_('PDV-2').mudancas[0]).toContain('Persianas › Rolo › Double Vision');
     expect(it_('PDV-2').mudancas[0]).toContain('venda R$ 220,00');
     expect(it_('PR-2').mudancas[0]).toContain('venda R$ 180,50');
     expect(it_('PR-3').mudancas[0]).toContain('Persianas › Rolo › Rolo');
     expect(it_('PP-1').erros.join()).toContain('subcategoria');
+  });
+
+  it('importação e desfazer com mais de 10 alterações pedem ALTERAR', async () => {
+    const linhas = ['SKU;Nome;Categoria;Unidade;Custo;Venda', ...Array.from({ length: 11 }, (_, i) => `HZ-${i + 1};;;;12;30`)];
+    let r = await req(admin, 'POST', '/api/catalogo/importacao/aplicar', csv(linhas.join('\n')));
+    expect(r.statusCode).toBe(428);
+    expect(r.json()).toMatchObject({ precisaConfirmacao: true, quantidade: 11 });
+    expect((await produto('HZ-1')).custo_unitario).toBe('10.0000');
+    r = await req(admin, 'POST', '/api/catalogo/importacao/aplicar', { ...csv(linhas.join('\n')), confirmacao: 'ALTERAR' });
+    expect(r.statusCode, r.body).toBe(201);
+    expect((await produto('HZ-1')).custo_unitario).toBe('12.0000');
+    const id = r.json().importacaoId as string;
+    r = await req(admin, 'POST', `/api/catalogo/importacoes/${id}/desfazer`, {});
+    expect(r.statusCode).toBe(428);
+    r = await req(admin, 'POST', `/api/catalogo/importacoes/${id}/desfazer`, { confirmacao: 'ALTERAR' });
+    expect(r.statusCode, r.body).toBe(200);
+    expect((await produto('HZ-1')).custo_unitario).toBe('10.0000');
   });
 });
 
