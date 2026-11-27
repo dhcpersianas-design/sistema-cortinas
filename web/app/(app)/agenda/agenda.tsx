@@ -7,7 +7,9 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { classeSelect, classeTextarea, Mensagens } from '@/components/cadastro/campos';
 import { buscar, type Cliente } from '@/lib/clientes-offline';
-import { carregarPacote, chamar, contarPendentes, enviarPendentes, ErroApi, type Medicao } from '@/lib/medicoes-offline';
+import { agendar, carregarPacote, chamar, contarPendentes, enviarPendentes, ErroApi, visitasSoNoAparelho, type Medicao } from '@/lib/medicoes-offline';
+import { gravar, ler, todos } from '@/lib/offline-db';
+import type { Orcamento } from '@/lib/orcamentos-offline';
 import { dataHoraBR, isoParaLocal, localParaIso, STATUS_PEDIDO } from '../pedidos/formato';
 import { corMedicao, TelaMedicao } from './medicao';
 
@@ -59,12 +61,17 @@ export function Agenda({ admin }: { admin: boolean }) {
   const [avisos, setAvisos] = useState<string[]>([]);
   const [erro, setErro] = useState<string | null>(null);
   const [prefill, setPrefill] = useState<Prefill>(null);
-  const [recarregar, setRecarregar] = useState(0);
+  const [locais, setLocais] = useState<Medicao[]>([]);
 
   const sincronizar = useCallback(async () => {
     const r = await enviarPendentes().catch(() => null);
-    if (r?.recusados.length) setAvisos(r.recusados.map((x) => `Não enviado: ${x}`));
-    if (r?.enviados) setAvisos((a) => [...a, `${r.enviados} registro(s) feito(s) sem internet foram enviados.`]);
+    if (r && (r.recusados.length || r.enviados || r.avisos.length)) {
+      setAvisos([
+        ...r.recusados.map((x) => `Não aplicado: ${x}`),
+        ...(r.enviados ? [`${r.enviados} mudança(s) feita(s) sem internet foram enviadas.`] : []),
+        ...r.avisos,
+      ]);
+    }
     setPendentes(await contarPendentes());
   }, []);
 
@@ -76,7 +83,10 @@ export function Agenda({ admin }: { admin: boolean }) {
 
   useEffect(() => {
     if (!admin) return;
-    chamar<{ vendedores: { id: string; nome: string }[] }>('/api/clientes-vendedores').then((r) => setVendedores(r.vendedores)).catch(() => {});
+    // A lista fica no aparelho para marcar visita sem internet.
+    chamar<{ vendedores: { id: string; nome: string }[] }>('/api/clientes-vendedores')
+      .then((r) => { setVendedores(r.vendedores); gravar('meta', r.vendedores, 'vendedores').catch(() => {}); })
+      .catch(async () => setVendedores((await ler<{ id: string; nome: string }[]>('meta', 'vendedores').catch(() => undefined)) ?? []));
   }, [admin]);
 
   useEffect(() => {
@@ -84,6 +94,7 @@ export function Agenda({ admin }: { admin: boolean }) {
     (async () => {
       // Sempre atualiza o pacote da obra (fica no aparelho para medir sem internet).
       const pacote = await carregarPacote().catch(() => null);
+      setLocais(await visitasSoNoAparelho().catch(() => []));
       const { de, ate } = semana(semanaN);
       try {
         const r = await chamar<RespostaAgenda>(`/api/agenda?de=${de}&ate=${ate}${responsavel ? `&responsavel=${responsavel}` : ''}`);
@@ -93,7 +104,7 @@ export function Agenda({ admin }: { admin: boolean }) {
         setOffline({ medicoes: pacote?.medicoes ?? [], baixadoEm: pacote?.baixadoEm ?? null });
       }
     })();
-  }, [aberta, semanaN, responsavel, pendentes, recarregar]);
+  }, [aberta, semanaN, responsavel, pendentes]);
 
   useEffect(() => {
     if (novo && sp.get('cliente')) setPrefill({ clienteId: sp.get('cliente')!, clienteNome: sp.get('nome') ?? '', orcamentoId: sp.get('orcamento') });
@@ -107,6 +118,10 @@ export function Agenda({ admin }: { admin: boolean }) {
       status: m.status, statusNome: m.statusNome, extra: m.numero,
     }))
     : [
+      ...locais.map((m): Evento => ({
+        tipo: 'MEDICAO', id: m.id, data: m.dataAgendada, titulo: m.clienteNome, detalhe: m.endereco ?? 'Endereço não informado',
+        status: m.status, statusNome: m.statusNome, extra: m.numero,
+      })),
       ...(dados?.medicoes ?? []).map((m): Evento => ({
         tipo: 'MEDICAO', id: m.id, data: m.dataAgendada, titulo: m.clienteNome,
         detalhe: [m.endereco ?? 'Endereço não informado', admin ? m.responsavelNome : null, m.duracaoHoras ? `${m.duracaoHoras.replace('.', ',')} h` : null].filter(Boolean).join(' · '),
@@ -131,21 +146,21 @@ export function Agenda({ admin }: { admin: boolean }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="flex-1 text-xl font-semibold">Agenda e medição</h1>
-        {!offline && <Button onClick={() => setPrefill({ clienteId: '', clienteNome: '' })}>Marcar medição</Button>}
+        <Button onClick={() => setPrefill({ clienteId: '', clienteNome: '' })}>Marcar medição</Button>
       </div>
       {offline && (
         <p className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm">
           Sem internet: mostrando as suas visitas guardadas no aparelho{offline.baixadoEm ? ` (baixadas em ${dataHoraBR(offline.baixadoEm)})` : ''}.
-          Dá para medir e tirar fotos normalmente; tudo é enviado quando a conexão voltar.
+          Dá para marcar, medir, tirar fotos e conferir normalmente; tudo é enviado quando a conexão voltar.
         </p>
       )}
-      {pendentes > 0 && <p className="text-sm text-amber-700 dark:text-amber-400">{pendentes} registro(s) ou foto(s) aguardando internet para enviar.</p>}
+      {pendentes > 0 && <p className="text-sm text-amber-700 dark:text-amber-400">{pendentes} mudança(s) ou foto(s) aguardando internet para enviar.</p>}
       <Mensagens erro={erro} avisos={avisos} />
 
       {prefill && (
         <FormAgendar admin={admin} vendedores={vendedores} prefill={prefill}
           onFechar={() => { setPrefill(null); if (novo) irPara(null); }}
-          onFeito={(id) => { setPrefill(null); irPara(`m=${id}`); }} />
+          onFeito={(id) => { setPrefill(null); setPendentes(-1); irPara(`m=${id}`); }} />
       )}
 
       {!offline && pend && (pend.semVisita.length > 0 || pend.aConferir.length > 0 || pend.atrasadas.length > 0) && (
@@ -257,13 +272,19 @@ function FormAgendar({ admin, vendedores, prefill, onFechar, onFeito }: {
 
   useEffect(() => {
     if (cliente || busca.trim().length < 2) { setAchados([]); return; }
-    const t = setTimeout(() => buscar(busca).then((r) => setAchados(r.clientes.filter((c) => !c.pendente).slice(0, 8))).catch(() => {}), 250);
+    const t = setTimeout(() => buscar(busca).then((r) => setAchados(r.clientes.slice(0, 8))).catch(() => {}), 250);
     return () => clearTimeout(t);
   }, [busca, cliente]);
 
   useEffect(() => {
     if (!cliente) { setProjetos([]); return; }
-    chamar<{ projetos: Projeto[] }>(`/api/clientes/${cliente.id}/projetos`).then((r) => {
+    chamar<{ projetos: Projeto[] }>(`/api/clientes/${cliente.id}/projetos`).catch(async () => {
+      // Sem internet: os orçamentos deste cliente que estão no aparelho (versão mais nova de cada projeto).
+      const os = (await todos<Orcamento>('orcamentos')).filter((o) => o.clienteId === cliente.id && o.codigo && !['PERDIDO', 'EXPIRADO'].includes(o.status));
+      const porCodigo = new Map<string, Orcamento>();
+      for (const o of os) if ((porCodigo.get(o.codigo!)?.versao ?? 0) < (o.versao ?? 0)) porCodigo.set(o.codigo!, o);
+      return { projetos: [...porCodigo.values()].map((o) => ({ orcamentoId: o.id, codigo: o.codigo!, versao: o.versao ?? 1, titulo: o.titulo, status: o.status, pedidoNumero: o.pedidoNumero ?? null, pedidoStatus: null })) };
+    }).then((r) => {
       setProjetos(r.projetos);
       // Projeto já escolhido (veio da pendência) pode ser uma versão antiga: troca pela mais nova do mesmo projeto.
       if (prefill.orcamentoId && !r.projetos.some((p) => p.orcamentoId === prefill.orcamentoId) && r.projetos.length === 1) setOrcamentoId(r.projetos[0]!.orcamentoId);
@@ -275,12 +296,12 @@ function FormAgendar({ admin, vendedores, prefill, onFechar, onFeito }: {
     if (!quando) { setErro('Informe o dia e a hora.'); return; }
     setErro(null); setSalvando(true);
     try {
-      const r = await chamar<{ medicao: { id: string } }>('/api/medicoes', 'POST', {
-        clienteId: cliente.id, orcamentoId: orcamentoId || null, dataAgendada: localParaIso(quando),
+      const r = await agendar({
+        id: crypto.randomUUID(), clienteId: cliente.id, orcamentoId: orcamentoId || null, dataAgendada: localParaIso(quando),
         duracaoHoras: duracao || null, responsavelId: responsavelId || null, observacoes: obs.trim() || null,
-      });
-      onFeito(r.medicao.id);
-    } catch (e) { setErro(e instanceof ErroApi ? e.message : 'Sem internet: marcar a visita precisa de conexão.'); }
+      }, { responsavelNome: vendedores.find((v) => v.id === responsavelId)?.nome ?? null });
+      onFeito(r.id);
+    } catch (e) { setErro(e instanceof ErroApi ? e.message : (e as Error).message); }
     setSalvando(false);
   }
 

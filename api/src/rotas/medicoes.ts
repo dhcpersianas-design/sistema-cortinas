@@ -82,13 +82,13 @@ export async function rotasMedicoes(app: FastifyInstance) {
 
   app.post('/api/medicoes', ver, async (req, res) => {
     const corpo = z.object({
-      clienteId: uuid, orcamentoId: uuid.nullish(), dataAgendada: dataHora, duracaoHoras: horas,
+      id: uuid.nullish(), clienteId: uuid, orcamentoId: uuid.nullish(), dataAgendada: dataHora, duracaoHoras: horas,
       responsavelId: uuid.nullish(), observacoes: textoOpcional(1000),
     }).safeParse(req.body);
     if (!corpo.success) return res.code(400).send({ erro: mensagemErro(corpo.error) });
     try {
       const r = await agendarMedicao(app.db, req.usuario!, corpo.data);
-      return res.code(201).send(await responder(req, r.id, { avisos: r.avisos }));
+      return res.code(r.repetido ? 200 : 201).send(await responder(req, r.id, { avisos: r.avisos, repetido: r.repetido }));
     } catch (e) { return falhar(res, e); }
   });
 
@@ -102,7 +102,10 @@ export async function rotasMedicoes(app: FastifyInstance) {
 
   app.post<{ Params: { id: string } }>('/api/medicoes/:id/remarcar', ver, async (req, res) => {
     if (!idValido(req, res)) return;
-    const corpo = z.object({ dataAgendada: dataHora, duracaoHoras: horas, responsavelId: uuid.nullish(), observacoes: textoOpcional(1000) }).safeParse(req.body);
+    const corpo = z.object({
+      dataAgendada: dataHora, duracaoHoras: horas, responsavelId: uuid.nullish(), observacoes: textoOpcional(1000),
+      atualizadoEmBase: dataHora.nullish(),
+    }).safeParse(req.body);
     if (!corpo.success) return res.code(400).send({ erro: mensagemErro(corpo.error) });
     try {
       const r = await remarcarMedicao(app.db, req.usuario!, req.params.id, corpo.data);
@@ -173,10 +176,10 @@ export async function rotasMedicoes(app: FastifyInstance) {
   /** Conferência: alterou = as medidas da obra mudam o que foi vendido/orçado. */
   app.post<{ Params: { id: string } }>('/api/medicoes/:id/conferir', ver, async (req, res) => {
     if (!idValido(req, res)) return;
-    const corpo = z.object({ alterou: z.boolean() }).safeParse(req.body);
+    const corpo = z.object({ alterou: z.boolean(), conferidaEm: dataHora.nullish() }).safeParse(req.body);
     if (!corpo.success) return res.code(400).send({ erro: 'Diga se as medidas mudaram ou não.' });
     try {
-      const r = await conferirMedicao(app.db, req.usuario!, req.params.id, corpo.data.alterou);
+      const r = await conferirMedicao(app.db, req.usuario!, req.params.id, corpo.data.alterou, corpo.data.conferidaEm);
       return await responder(req, req.params.id, { resultado: r });
     } catch (e) { return falhar(res, e); }
   });

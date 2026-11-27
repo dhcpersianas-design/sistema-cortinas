@@ -232,6 +232,39 @@ describe('registro na obra e conferência', () => {
     expect((await req(beto, 'GET', `/api/orcamentos/${orc}/medicoes`)).json().medicoes).toHaveLength(1);
   });
 
+  it('feito sem internet: marcar com id do aparelho, remarcar com conflito e conferir com a data do aparelho', async () => {
+    const orc = await orcamentoEnviado(ana, clienteAna);
+    const pedido = (await req(ana, 'POST', `/api/orcamentos/${orc}/aprovar`, {})).json().pedido;
+    const id = randomUUID();
+    const corpo = { id, clienteId: clienteAna, orcamentoId: orc, dataAgendada: amanha(8) };
+    const a1 = await req(ana, 'POST', '/api/medicoes', corpo);
+    expect(a1.statusCode, a1.body).toBe(201);
+    expect(a1.json().medicao.id).toBe(id);
+    const a2 = await req(ana, 'POST', '/api/medicoes', corpo); // reenvio da fila
+    expect(a2.statusCode).toBe(200);
+    expect(a2.json().medicao.numero).toBe(a1.json().medicao.numero);
+    expect((await req(beto, 'POST', '/api/medicoes', { ...corpo, clienteId: clienteBeto, orcamentoId: null })).statusCode).toBe(409);
+
+    // Remarcação offline baseada numa cópia antiga não sobrescreve quem mexeu depois
+    const base = a1.json().medicao.atualizadoEm;
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await req(admin, 'POST', `/api/medicoes/${id}/remarcar`, { dataAgendada: amanha(14), responsavelId: anaId })).statusCode).toBe(200);
+    const conf = await req(ana, 'POST', `/api/medicoes/${id}/remarcar`, { dataAgendada: amanha(16), atualizadoEmBase: base });
+    expect(conf.statusCode).toBe(409);
+    expect(conf.json().conflito).toBe(true);
+
+    await registrar(ana, id);
+    // Conferida no aparelho ontem (sem internet), enviada hoje: o prazo conta de ontem.
+    const ontem = new Date(Date.now() - 864e5).toISOString();
+    const c = await req(ana, 'POST', `/api/medicoes/${id}/conferir`, { alterou: false, conferidaEm: ontem });
+    expect(c.statusCode, c.body).toBe(200);
+    const p = (await req(ana, 'GET', `/api/pedidos/${pedido.id}`)).json().pedido;
+    expect(p.previsaoEntrega).toBe(somarDiasUteis(hojeLoja(new Date(ontem)), 14));
+    const rep = await req(ana, 'POST', `/api/medicoes/${id}/conferir`, { alterou: false, conferidaEm: ontem });
+    expect(rep.statusCode).toBe(409);
+    expect(rep.json().jaConferida).toBe(true);
+  });
+
   it('pacote offline traz as visitas do responsável com os itens', async () => {
     const r = (await req(ana, 'GET', '/api/medicoes/pacote-offline')).json();
     expect(r.medicoes.length).toBeGreaterThan(0);

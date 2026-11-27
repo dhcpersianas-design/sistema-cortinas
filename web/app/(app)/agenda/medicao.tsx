@@ -6,12 +6,13 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { classeSelect, classeTextarea, Mensagens } from '@/components/cadastro/campos';
 import {
-  abrirMedicao, adicionarFoto, chamar, cmParaMetros, ErroApi, metrosParaCm, metrosTxt, reduzirFoto, registrar, removerFoto,
+  abrirMedicao, adicionarFoto, cancelar as cancelarVisita, conferir as conferirVisita, ErroApi, interpretarMedida, metrosParaCampo, metrosTxt,
+  reduzirFoto, registrar, remarcar as remarcarVisita, removerFoto,
   type FotoInfo, type ItemOrcamento, type Medicao, type Vao,
 } from '@/lib/medicoes-offline';
 import { dataHoraBR, isoParaLocal, localParaIso, STATUS_PEDIDO } from '../pedidos/formato';
 
-/** Vão no formulário: medidas em centímetros, como o vendedor digita na obra. */
+/** Vão no formulário: medidas como o vendedor digita na obra (metros, centímetros ou milímetros). */
 type VaoForm = Omit<Vao, 'larguras' | 'alturas' | 'profundidadeCortineiroM'> & { larguras: string[]; alturas: string[]; profundidade: string };
 
 const MODOS: [string, string][] = [['DENTRO_VAO', 'Dentro do vão (embutida)'], ['FORA_VAO', 'Fora do vão (parede)'], ['TETO', 'No teto / cortineiro']];
@@ -21,9 +22,9 @@ function vaoParaForm(v: Vao): VaoForm {
   const { profundidadeCortineiroM, ...resto } = v;
   return {
     ...resto,
-    larguras: [0, 1, 2].map((i) => metrosParaCm(v.larguras[i])),
-    alturas: [0, 1, 2].map((i) => metrosParaCm(v.alturas[i])),
-    profundidade: metrosParaCm(profundidadeCortineiroM),
+    larguras: [0, 1, 2].map((i) => metrosParaCampo(v.larguras[i])),
+    alturas: [0, 1, 2].map((i) => metrosParaCampo(v.alturas[i])),
+    profundidade: metrosParaCampo(profundidadeCortineiroM),
   };
 }
 function vaoNovo(item?: ItemOrcamento): VaoForm {
@@ -34,7 +35,7 @@ function vaoNovo(item?: ItemOrcamento): VaoForm {
   };
 }
 
-/** Confere e converte o formulário (cm) para o registro (m). Devolve o erro em texto. */
+/** Confere e converte o formulário para o registro (metros). Devolve o erro em texto. */
 function formParaVao(f: VaoForm, n: number): Vao | string {
   const rot = `Vão ${n} (${f.ambiente || 'sem ambiente'})`;
   if (!f.ambiente.trim()) return `${rot}: informe o ambiente.`;
@@ -42,9 +43,9 @@ function formParaVao(f: VaoForm, n: number): Vao | string {
     const out: string[] = [];
     for (const v of lista) {
       if (!v.trim()) continue;
-      const m = cmParaMetros(v);
+      const m = interpretarMedida(v)?.metros;
       if (!m) return `${rot}: ${nome} inválida ("${v}").`;
-      if (Number(m) < 0.1) return `${rot}: ${nome} de ${v} cm é pequena demais. Digite em centímetros (ex.: 260).`;
+      if (Number(m) < 0.1) return `${rot}: ${nome} "${v}" ficou com ${metrosTxt(m)}, pequena demais. Confira.`;
       out.push(m);
     }
     return out.length ? out : `${rot}: informe a ${nome}.`;
@@ -53,9 +54,9 @@ function formParaVao(f: VaoForm, n: number): Vao | string {
   if (typeof l === 'string') return l;
   const a = conv(f.tipo === 'CORTINA' ? f.alturas.slice(0, 1) : f.alturas, 'altura');
   if (typeof a === 'string') return a;
-  if (l.some((x) => Number(x) > 15)) return `${rot}: largura acima de 15 m. Confira se digitou em centímetros.`;
-  if (a.some((x) => Number(x) > 10)) return `${rot}: altura acima de 10 m. Confira se digitou em centímetros.`;
-  const prof = f.profundidade.trim() ? cmParaMetros(f.profundidade) : null;
+  if (l.some((x) => Number(x) > 15)) return `${rot}: largura acima de 15 m. Confira o que foi digitado.`;
+  if (a.some((x) => Number(x) > 10)) return `${rot}: altura acima de 10 m. Confira o que foi digitado.`;
+  const prof = f.profundidade.trim() ? (interpretarMedida(f.profundidade, 'PROFUNDIDADE')?.metros ?? null) : null;
   if (f.profundidade.trim() && !prof) return `${rot}: profundidade inválida.`;
   return {
     id: f.id, ambiente: f.ambiente.trim(), descricao: f.descricao.trim(), tipo: f.tipo, modo: f.tipo === 'PERSIANA' ? (f.modo ?? 'DENTRO_VAO') : null,
@@ -113,7 +114,7 @@ export function TelaMedicao({ id, admin, vendedores, onVoltar, onMudou }: {
     if (!x) return;
     setVaos(x.vaos.length ? x.vaos.map(vaoParaForm) : []);
     setObsCampo(x.obsCampo ?? '');
-    setEditando(x.statusBanco === 'AGENDADA' && !x.pendente && !x.vaos.length);
+    setEditando(x.statusBanco === 'AGENDADA' && !x.vaos.length);
   }, []);
 
   const carregar = useCallback(async () => {
@@ -138,17 +139,19 @@ export function TelaMedicao({ id, admin, vendedores, onVoltar, onMudou }: {
   const fechada = Boolean(m.conferidaEm) || m.statusBanco === 'CANCELADA';
   const podeEditar = !fechada;
 
-  async function acao<T>(caminho: string, corpo: unknown, msg: string): Promise<T | null> {
+  type Res = Awaited<ReturnType<typeof conferirVisita>>;
+  async function acao(fazer: () => Promise<Res>, msg: string, msgOffline: string): Promise<Res | null> {
     setErro(null); setOk(null); setAvisos([]); setSalvando(true);
     try {
-      const r = await chamar<T & { medicao: Medicao; avisos?: string[] }>(caminho, 'POST', corpo);
-      aplicar(r.medicao);
-      setOk(msg);
-      setAvisos(r.avisos ?? []);
+      const r = await fazer();
+      if (r.medicao) aplicar(r.medicao);
+      setOk(r.offline ? msgOffline : (r.resultado?.mensagem ?? msg));
+      setAvisos(r.avisos);
+      if (r.resultado) setResultado(r.resultado);
       onMudou();
       return r;
     } catch (e) {
-      setErro(e instanceof ErroApi ? e.message : 'Sem internet: esta ação precisa de conexão.');
+      setErro((e as Error).message);
       return null;
     } finally { setSalvando(false); }
   }
@@ -213,7 +216,8 @@ export function TelaMedicao({ id, admin, vendedores, onVoltar, onMudou }: {
         <Badge>{m.numero}</Badge>
         <Badge className={corMedicao(m.status)}>{m.statusNome}</Badge>
       </div>
-      {offline && <p className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm">Sem internet: dá para medir e tirar fotos. Remarcar e conferir precisam de conexão.</p>}
+      {offline && <p className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm">Sem internet: tudo funciona (medir, fotos, remarcar, cancelar e conferir). Fica no aparelho e é enviado quando a conexão voltar.</p>}
+      {m.pendente && !offline && <p className="text-sm text-amber-700 dark:text-amber-400">Há mudanças desta visita guardadas no aparelho, esperando internet para enviar.</p>}
       <Mensagens erro={erro} ok={ok} avisos={avisos} />
 
       <Card>
@@ -230,7 +234,7 @@ export function TelaMedicao({ id, admin, vendedores, onVoltar, onMudou }: {
               : <p className="text-muted-foreground">Sem orçamento ligado (visita antes do orçamento).</p>}
           {m.statusBanco === 'CANCELADA' && <p className="text-destructive">Cancelada: {m.motivoCancelamento}</p>}
           {m.conferidaEm && <p className="text-emerald-700 dark:text-emerald-400">Conferida em {dataHoraBR(m.conferidaEm)}{m.conferidaPorNome ? ` por ${m.conferidaPorNome}` : ''}.</p>}
-          {m.statusBanco === 'AGENDADA' && !offline && !m.pendente && !remarcar && cancelar === null && (
+          {m.statusBanco === 'AGENDADA' && !m.vaos.length && !remarcar && cancelar === null && (
             <div className="flex flex-wrap gap-2 pt-2">
               <Button size="sm" variant="outline" onClick={() => setRemarcar({ quando: isoParaLocal(m.dataAgendada), duracao: m.duracaoHoras?.replace('.', ',') ?? '', responsavelId: m.responsavelId ?? '', obs: m.observacoes ?? '' })}>Remarcar</Button>
               <Button size="sm" variant="outline" onClick={() => setCancelar('')}>Cancelar visita</Button>
@@ -252,7 +256,10 @@ export function TelaMedicao({ id, admin, vendedores, onVoltar, onMudou }: {
               <label className="flex flex-col gap-1">Observações<textarea className={classeTextarea} value={remarcar.obs} onChange={(e) => setRemarcar({ ...remarcar, obs: e.target.value })} /></label>
               <div className="flex gap-2">
                 <Button size="sm" disabled={salvando} onClick={async () => {
-                  const r = await acao('/api/medicoes/' + m.id + '/remarcar', { dataAgendada: localParaIso(remarcar.quando), duracaoHoras: remarcar.duracao || null, responsavelId: remarcar.responsavelId || null, observacoes: remarcar.obs.trim() || null }, 'Visita remarcada.');
+                  if (!remarcar.quando) { setErro('Informe o dia e a hora.'); return; }
+                  const nomeResp = vendedores.find((v) => v.id === remarcar.responsavelId)?.nome ?? m.responsavelNome;
+                  const r = await acao(() => remarcarVisita(m, { dataAgendada: localParaIso(remarcar.quando), duracaoHoras: remarcar.duracao || null, responsavelId: remarcar.responsavelId || null, observacoes: remarcar.obs.trim() || null }, nomeResp),
+                    'Visita remarcada.', 'Sem internet: a remarcação ficou no aparelho e será enviada quando a conexão voltar.');
                   if (r) setRemarcar(null);
                 }}>Salvar</Button>
                 <Button size="sm" variant="outline" onClick={() => setRemarcar(null)}>Voltar</Button>
@@ -263,7 +270,7 @@ export function TelaMedicao({ id, admin, vendedores, onVoltar, onMudou }: {
             <div className="space-y-2 border-t pt-3">
               <label className="flex flex-col gap-1">Motivo do cancelamento<Input value={cancelar} onChange={(e) => setCancelar(e.target.value)} /></label>
               <div className="flex gap-2">
-                <Button size="sm" variant="destructive" disabled={salvando} onClick={async () => { const r = await acao(`/api/medicoes/${m.id}/cancelar`, { motivo: cancelar }, 'Visita cancelada.'); if (r) setCancelar(null); }}>Cancelar visita</Button>
+                <Button size="sm" variant="destructive" disabled={salvando} onClick={async () => { if (cancelar.trim().length < 3) { setErro('Informe o motivo.'); return; } const r = await acao(() => cancelarVisita(m, cancelar.trim()), 'Visita cancelada.', 'Sem internet: o cancelamento ficou no aparelho e será enviado quando a conexão voltar.'); if (r) setCancelar(null); }}>Cancelar visita</Button>
                 <Button size="sm" variant="outline" onClick={() => setCancelar(null)}>Voltar</Button>
               </div>
             </div>
@@ -299,7 +306,7 @@ export function TelaMedicao({ id, admin, vendedores, onVoltar, onMudou }: {
 
             {editando && (
               <>
-                <p className="text-muted-foreground">Digite as medidas em <strong>centímetros</strong> (ex.: 260). Persiana dentro do vão: meça em 3 pontos; vale a menor.</p>
+                <p className="text-muted-foreground">Digite em <strong>metros ou centímetros</strong>: 2,595 ou 259,5 ou 2595 viram 2,595 m; 260 vira 2,60 m. Confira embaixo de cada campo como o sistema leu. Persiana dentro do vão: meça em 3 pontos; vale a menor.</p>
                 {vaos.length === 0 && m.itens.length > 0 && (
                   <Button size="sm" variant="outline" onClick={() => setVaos(m.itens.map((it) => vaoNovo(it)))}>Trazer os {m.itens.length} itens do orçamento</Button>
                 )}
@@ -336,8 +343,8 @@ export function TelaMedicao({ id, admin, vendedores, onVoltar, onMudou }: {
                             {MODOS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
                           </select>
                         </label>
-                        <Medidas rotulo="Largura (cm)" nomes={['em cima', 'no meio', 'embaixo']} valores={v.larguras} onChange={(x) => mudarVao(i, { larguras: x })} />
-                        <Medidas rotulo="Altura (cm)" nomes={['esquerda', 'no meio', 'direita']} valores={v.alturas} onChange={(x) => mudarVao(i, { alturas: x })} />
+                        <Medidas rotulo="Largura" nomes={['em cima', 'no meio', 'embaixo']} valores={v.larguras} onChange={(x) => mudarVao(i, { larguras: x })} />
+                        <Medidas rotulo="Altura" nomes={['esquerda', 'no meio', 'direita']} valores={v.alturas} onChange={(x) => mudarVao(i, { alturas: x })} />
                         <label className="flex flex-col gap-1">Lado do comando
                           <select className={classeSelect} value={v.ladoComando ?? ''} onChange={(e) => mudarVao(i, { ladoComando: (e.target.value || null) as Vao['ladoComando'] })}>
                             <option value="">Não definido</option><option value="DIREITO">Direito</option><option value="ESQUERDO">Esquerdo</option>
@@ -346,9 +353,9 @@ export function TelaMedicao({ id, admin, vendedores, onVoltar, onMudou }: {
                       </>
                     ) : (
                       <div className="grid gap-2 sm:grid-cols-3">
-                        <CampoCm rotulo="Largura do trilho (cm)" valor={v.larguras[0] ?? ''} onChange={(x) => mudarVao(i, { larguras: [x, '', ''] })} />
-                        <CampoCm rotulo="Altura pronta (cm)" valor={v.alturas[0] ?? ''} onChange={(x) => mudarVao(i, { alturas: [x, '', ''] })} />
-                        <CampoCm rotulo="Cortineiro: profundidade (cm)" valor={v.profundidade} onChange={(x) => mudarVao(i, { profundidade: x })} />
+                        <CampoCm rotulo="Largura do trilho" valor={v.larguras[0] ?? ''} onChange={(x) => mudarVao(i, { larguras: [x, '', ''] })} />
+                        <CampoCm rotulo="Altura pronta" valor={v.alturas[0] ?? ''} onChange={(x) => mudarVao(i, { alturas: [x, '', ''] })} />
+                        <CampoCm profundidade rotulo="Cortineiro: profundidade" valor={v.profundidade} onChange={(x) => mudarVao(i, { profundidade: x })} />
                       </div>
                     )}
                     <label className="flex flex-col gap-1">Observações do vão
@@ -382,23 +389,19 @@ export function TelaMedicao({ id, admin, vendedores, onVoltar, onMudou }: {
       )}
 
       {/* --------------------------------------------------------- conferência */}
-      {m.conferencia.pode && !m.pendente && !editando && (
+      {m.conferencia.pode && !editando && (
         <Card>
           <CardHeader><CardTitle>Conferir as medidas</CardTitle></CardHeader>
           <CardContent className="space-y-3 text-sm">
             <p>{m.conferencia.explicacao}</p>
             <p className="text-muted-foreground">Compare as medidas da obra com as do {m.pedidoId ? 'pedido' : 'orçamento'} (aparecem embaixo de cada vão).</p>
-            {offline ? <p className="text-amber-700 dark:text-amber-400">Conferir precisa de internet.</p> : (
+            {(
               <div className="flex flex-wrap gap-2">
-                <Button disabled={salvando} onClick={async () => {
-                  const r = await acao<{ resultado: typeof resultado }>(`/api/medicoes/${m.id}/conferir`, { alterou: false }, 'Medição conferida.');
-                  if (r?.resultado) { setResultado(r.resultado); setOk(r.resultado.mensagem); }
-                }}>{m.conferencia.destino === 'PEDIDO' ? 'Medidas conferem: liberar o pedido' : 'Medidas conferem'}</Button>
+                <Button disabled={salvando} onClick={() => acao(() => conferirVisita(m, false), 'Medição conferida.',
+                  'Sem internet: a conferência ficou no aparelho. O prazo conta a partir de hoje e o pedido/orçamento é atualizado quando a conexão voltar.')}>{m.conferencia.destino === 'PEDIDO' ? 'Medidas conferem: liberar o pedido' : 'Medidas conferem'}</Button>
                 {m.conferencia.destino !== 'REGISTRO' && (
-                  <Button variant="outline" disabled={salvando} onClick={async () => {
-                    const r = await acao<{ resultado: typeof resultado }>(`/api/medicoes/${m.id}/conferir`, { alterou: true }, '');
-                    if (r?.resultado) { setResultado(r.resultado); setOk(r.resultado.mensagem); }
-                  }}>{m.conferencia.destino === 'PEDIDO' ? 'Medidas mudaram: abrir aditivo' : 'Medidas mudaram: nova versão'}</Button>
+                  <Button variant="outline" disabled={salvando} onClick={() => acao(() => conferirVisita(m, true), '',
+                    `Sem internet: a conferência ficou no aparelho. Quando a conexão voltar, o sistema ${m.conferencia.destino === 'PEDIDO' ? 'abre o aditivo de medição' : 'cria a nova versão do orçamento'} para você ajustar.`)}>{m.conferencia.destino === 'PEDIDO' ? 'Medidas mudaram: abrir aditivo' : 'Medidas mudaram: nova versão'}</Button>
                 )}
               </div>
             )}
@@ -422,12 +425,15 @@ export function TelaMedicao({ id, admin, vendedores, onVoltar, onMudou }: {
   );
 }
 
-function CampoCm({ rotulo, valor, onChange }: { rotulo: string; valor: string; onChange: (v: string) => void }) {
-  const m = cmParaMetros(valor);
+/** Campo de medida: aceita metros, centímetros ou milímetros e mostra como o sistema leu. */
+function CampoCm({ rotulo, valor, onChange, profundidade }: { rotulo: string; valor: string; onChange: (v: string) => void; profundidade?: boolean }) {
+  const l = interpretarMedida(valor, profundidade ? 'PROFUNDIDADE' : 'VAO');
   return (
     <label className="flex flex-col gap-1">{rotulo}
       <Input inputMode="decimal" value={valor} onChange={(e) => onChange(e.target.value)} />
-      {m && <span className="text-xs text-muted-foreground">= {metrosTxt(m)}</span>}
+      {valor.trim() && (l
+        ? <span className="text-xs text-muted-foreground">= <strong>{metrosTxt(l.metros)}</strong> (lido em {l.regra})</span>
+        : <span className="text-xs text-destructive">Medida inválida</span>)}
     </label>
   );
 }

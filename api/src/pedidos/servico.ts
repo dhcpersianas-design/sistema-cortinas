@@ -163,9 +163,9 @@ async function mudarStatus(tx: Exec, p: Pick<CabecalhoPedido, 'id' | 'status'>, 
 }
 
 /** Previsão de entrega: prazo do orçamento (dias úteis) contado a partir de hoje, o dia em que as medidas foram conferidas. */
-async function previsaoEntrega(tx: Exec, p: Pick<CabecalhoPedido, 'lojaId' | 'prazoEntregaDias'>): Promise<string> {
+async function previsaoEntrega(tx: Exec, p: Pick<CabecalhoPedido, 'lojaId' | 'prazoEntregaDias'>, inicio = hojeLoja()): Promise<string> {
   const prazo = p.prazoEntregaDias ?? Number((await parametro(tx as Banco, p.lojaId, 'PRAZO_ENTREGA_DIAS_UTEIS')) ?? 14);
-  return somarDiasUteis(hojeLoja(), prazo);
+  return somarDiasUteis(inicio, prazo);
 }
 
 // ------------------------------------------------------------------ aprovação (orçamento -> pedido)
@@ -233,14 +233,14 @@ export async function marcarMedicoesConferidas(tx: Exec, grupoId: string, usuari
       AND orcamento_id IN (SELECT id FROM orcamentos WHERE grupo_id = ${grupoId})`);
 }
 
-/** Medição feita e nada mudou: segue para aguardar o sinal. */
-export async function conferirSemAlteracao(db: Banco, u: UsuarioSessao, pedidoId: string) {
+/** Medição feita e nada mudou: segue para aguardar o sinal. `dia` = dia da conferência (feita sem internet). */
+export async function conferirSemAlteracao(db: Banco, u: UsuarioSessao, pedidoId: string, dia = hojeLoja()) {
   await db.transaction(async (tx) => {
     const p = await pedidoDoUsuario(tx, u, pedidoId, true);
     if (p.status !== 'CONFERENCIA_MEDIDAS') throw new ErroPedido('O pedido não está em conferência de medidas.', 409);
     if (await rascunhoDoAditivo(tx, p)) throw new ErroPedido('Há um aditivo de medição em aberto: confirme ou descarte antes.', 409);
     await tx.execute(sql`UPDATE pedidos SET medidas_conferidas_em = NOW(), medidas_conferidas_por_id = ${u.id},
-      data_previsao_entrega = ${await previsaoEntrega(tx, p)}::date WHERE id = ${p.id}`);
+      data_previsao_entrega = ${await previsaoEntrega(tx, p, dia)}::date WHERE id = ${p.id}`);
     await mudarStatus(tx, p, 'AGUARDANDO_SINAL', u.id, 'Medidas conferidas no local, sem alteração.');
     await marcarMedicoesConferidas(tx, p.grupoId, u.id);
     await atualizarVencimentoSaldo(tx, p.id);

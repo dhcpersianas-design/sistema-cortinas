@@ -69,6 +69,8 @@ export type CabecalhoMedicao = {
   vaos: Vao[]; registradoOffline: boolean; registroId: string | null;
   conferidaEm: string | null; conferidaPorNome: string | null; orcamentoGeradoId: string | null;
   canceladaEm: string | null; motivoCancelamento: string | null;
+  /** Para detectar conflito na remarcação feita sem internet. */
+  atualizadoEm: string;
 };
 
 const SELECT_MEDICAO = sql`
@@ -83,7 +85,8 @@ const SELECT_MEDICAO = sql`
          p.id AS "pedidoId", p.numero_pedido AS "pedidoNumero", p.status_operacional::text AS "pedidoStatus",
          m.vaos, m.registrado_offline AS "registradoOffline", m.registro_id AS "registroId",
          m.conferida_em AS "conferidaEm", cf.nome AS "conferidaPorNome", m.orcamento_gerado_id AS "orcamentoGeradoId",
-         m.cancelada_em AS "canceladaEm", m.motivo_cancelamento AS "motivoCancelamento"
+         m.cancelada_em AS "canceladaEm", m.motivo_cancelamento AS "motivoCancelamento",
+         to_char(m.atualizado_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "atualizadoEm"
     FROM medicoes m
     JOIN clientes c ON c.id = m.cliente_id
     LEFT JOIN usuarios r ON r.id = m.tecnico_id
@@ -246,6 +249,8 @@ export async function projetosDoCliente(db: Banco, u: UsuarioSessao, clienteId: 
 // ------------------------------------------------------------------ agendar, remarcar, cancelar
 
 export type EntradaAgendar = {
+  /** Gerado no aparelho (marcação feita sem internet): reenviar não duplica. */
+  id?: string | null;
   clienteId: string; orcamentoId?: string | null; dataAgendada: string; duracaoHoras?: string | null;
   responsavelId?: string | null; observacoes?: string | null;
 };
@@ -273,6 +278,14 @@ async function avisosDeHorario(tx: Exec, lojaId: string, responsavelId: string, 
 
 export async function agendarMedicao(db: Banco, u: UsuarioSessao, e: EntradaAgendar) {
   return db.transaction(async (tx) => {
+    if (e.id) {
+      const [ja] = await linhas<{ id: string; numero: string; lojaId: string; criadoPorId: string }>(tx, sql`
+        SELECT id, numero, loja_id AS "lojaId", criado_por_id AS "criadoPorId" FROM medicoes WHERE id = ${e.id}`);
+      if (ja) {
+        if (ja.lojaId !== u.lojaId || ja.criadoPorId !== u.id) throw new ErroMedicao('Medição já existe.', 409);
+        return { id: ja.id, numero: ja.numero, avisos: [] as string[], repetido: true };
+      }
+    }
     const [cli] = await linhas<{ id: string }>(tx, sql`
       SELECT id FROM clientes WHERE id = ${e.clienteId} AND loja_id = ${u.lojaId} AND ativo
          AND (${pode(u, 'clientes.todos')}::boolean OR vendedor_responsavel_id = ${u.id})`);
@@ -295,17 +308,21 @@ export async function agendarMedicao(db: Banco, u: UsuarioSessao, e: EntradaAgen
     const [n] = await linhas<{ n: string }>(tx, sql`SELECT nextval('medicao_numero_seq')::text AS n`);
     const numero = `MED-${hojeLoja().slice(0, 4)}-${n!.n.padStart(4, '0')}`;
     const [m] = await linhas<{ id: string }>(tx, sql`
-      INSERT INTO medicoes (loja_id, numero, cliente_id, orcamento_id, tecnico_id, status, data_agendada, duracao_horas, observacoes, criado_por_id)
-      VALUES (${u.lojaId}, ${numero}, ${e.clienteId}, ${orcamentoId}, ${responsavel}, 'AGENDADA', ${e.dataAgendada}::timestamptz,
+      INSERT INTO medicoes (id, loja_id, numero, cliente_id, orcamento_id, tecnico_id, status, data_agendada, duracao_horas, observacoes, criado_por_id)
+      VALUES (COALESCE(${e.id ?? null}::uuid, gen_random_uuid()), ${u.lojaId}, ${numero}, ${e.clienteId}, ${orcamentoId}, ${responsavel}, 'AGENDADA', ${e.dataAgendada}::timestamptz,
               ${e.duracaoHoras ?? null}, ${e.observacoes ?? null}, ${u.id})
       RETURNING id`);
-    return { id: m!.id, numero, avisos };
+    return { id: m!.id, numero, avisos, repetido: false };
   });
 }
 
-export async function remarcarMedicao(db: Banco, u: UsuarioSessao, id: string, e: Omit<EntradaAgendar, 'clienteId' | 'orcamentoId'>) {
+export async function remarcarMedicao(db: Banco, u: UsuarioSessao, id: string, e: Omit<EntradaAgendar, 'clienteId' | 'orcamentoId' | 'id'> & { atualizadoEmBase?: string | null }) {
   return db.transaction(async (tx) => {
     const m = await medicaoDoUsuario(tx, u, id, true);
+    // Remarcação feita sem internet: se outra pessoa mexeu na visita depois, não sobrescreve.
+    if (e.atualizadoEmBase && new Date(m.atualizadoEm).getTime() > new Date(e.atualizadoEmBase).getTime()) {
+      throw new ErroMedicao(`A visita ${m.numero} foi alterada por outra pessoa enquanto você estava sem internet (agora: ${new Date(m.dataAgendada).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' })}, ${m.responsavelNome ?? ''}). A sua remarcação não foi aplicada: confira e remarque de novo.`, 409, { conflito: true });
+    }
     if (m.statusBanco !== 'AGENDADA') throw new ErroMedicao('Só dá para remarcar uma medição ainda não feita.', 409);
     const responsavel = pode(u, 'medicoes.todas') ? await validarResponsavel(tx, u, e.responsavelId ?? m.responsavelId) : (m.responsavelId ?? u.id);
     const avisos = await avisosDeHorario(tx, u.lojaId, responsavel, e.dataAgendada, m.id);
@@ -402,12 +419,15 @@ export type ResultadoConferencia = { mensagem: string; orcamentoId: string | nul
  * Confere a medição. `alterou` = as medidas tiradas na obra mudam o que foi vendido/orçado.
  * Veja o comentário do topo para o efeito em cada caso.
  */
-export async function conferirMedicao(db: Banco, u: UsuarioSessao, id: string, alterou: boolean): Promise<ResultadoConferencia> {
+export async function conferirMedicao(db: Banco, u: UsuarioSessao, id: string, alterou: boolean, conferidaEm?: string | null): Promise<ResultadoConferencia> {
   const m = await medicaoDoUsuario(db, u, id);
   const a = acoesConferencia(m);
   if (!a.pode) {
-    throw new ErroMedicao(m.conferidaEm ? 'Esta medição já foi conferida.' : 'Registre as medidas da obra antes de conferir.', 409);
+    if (m.conferidaEm) throw new ErroMedicao('Esta medição já foi conferida.', 409, { jaConferida: true });
+    throw new ErroMedicao(m.statusBanco === 'CANCELADA' ? 'Esta medição foi cancelada.' : 'Registre as medidas da obra antes de conferir.', 409);
   }
+  // Conferida sem internet: o prazo conta do dia em que foi conferida no aparelho (nunca no futuro).
+  const diaConferencia = conferidaEm ? hojeLoja(new Date(Math.min(Date.parse(conferidaEm), Date.now()))) : hojeLoja();
   if (!m.vaos.length) throw new ErroMedicao('Registre ao menos um vão antes de conferir.', 409);
 
   const marcar = async (gerado: string | null) => {
@@ -420,8 +440,8 @@ export async function conferirMedicao(db: Banco, u: UsuarioSessao, id: string, a
     const p = (await lerPedido(db, m.pedidoId!))!;
     if (!alterou) {
       // conferirSemAlteracao marca esta medição como conferida (marcarMedicoesConferidas).
-      await conferirSemAlteracao(db, u, p.id);
-      return { mensagem: `Medidas conferidas. O pedido ${p.numero} seguiu para "Aguardando sinal" e o prazo de entrega começou a contar hoje.`, orcamentoId: null, pedidoId: p.id };
+      await conferirSemAlteracao(db, u, p.id, diaConferencia);
+      return { mensagem: `Medidas conferidas. O pedido ${p.numero} seguiu para "Aguardando sinal" e o prazo de entrega conta a partir de ${diaConferencia.split('-').reverse().join('/')}.`, orcamentoId: null, pedidoId: p.id };
     }
     const r = await abrirAditivo(db, u, p.id, `Medição ${m.numero}`);
     await db.execute(sql`UPDATE medicoes SET orcamento_gerado_id = ${r.orcamentoId}, atualizado_em = NOW() WHERE id = ${m.id}`);
