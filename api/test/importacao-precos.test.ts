@@ -72,8 +72,8 @@ describe('importação de preços', () => {
     const p = r.json() as { itens: Item[]; resumo: Record<string, number> };
     const por = (aba: string, linha: number) => p.itens.find((i) => i.aba === aba && i.linha === linha)!;
 
-    expect(por('Produtos', 2)).toMatchObject({ sku: 'TEC-001', acao: 'ATUALIZAR', mudancas: ['Custo: R$ 42,00 → R$ 45,50'] });
-    expect(por('Produtos', 2).avisos.join()).toContain('venda atual foi mantida');
+    expect(por('Produtos', 2)).toMatchObject({ sku: 'TEC-001', acao: 'ATUALIZAR', mudancas: ['Custo: R$ 42,00 → R$ 45,50', 'Venda: R$ 110,00 → R$ 91,00'] });
+    expect(por('Produtos', 2).avisos.join()).toContain('venda recalculada pelo markup');
     expect(por('Produtos', 3)).toMatchObject({ sku: 'TEC-050', acao: 'CRIAR' });
     expect(por('Produtos', 4).mudancas).toEqual(['Custo: R$ 80,00 → R$ 90,00', 'Venda: R$ 180,00 → R$ 200,00']);
     expect(por('Produtos', 5)).toMatchObject({ sku: 'TRI-050', acao: 'CRIAR' });
@@ -99,7 +99,7 @@ describe('importação de preços', () => {
     importacaoId = r.json().importacaoId;
 
     const tec = await produto('TEC-001');
-    expect([tec.custo_unitario, tec.preco_venda_unitario]).toEqual(['45.5000', '110.0000']);
+    expect([tec.custo_unitario, tec.preco_venda_unitario]).toEqual(['45.5000', '91.0000']);
     const novo = await produto('TEC-050');
     expect(novo).toMatchObject({ nome: 'Linho Rústico', categoria_id: 1, unidade_medida: 'ML', cor_colecao: 'Cru', custo_unitario: '30.0000', preco_venda_unitario: '79.9000' });
     expect((await produto('TRI-050')).preco_venda_unitario).toBe('40.0000');
@@ -129,6 +129,7 @@ describe('importação de preços', () => {
     expect(r.json().restaurados).toBe(10);
 
     expect((await produto('TEC-001')).custo_unitario).toBe('42.0000');
+    expect((await produto('TEC-001')).preco_venda_unitario).toBe('110.0000');
     expect((await produto('TEC-050')).ativo).toBe(false);
     expect((await produto('SRV-001')).preco_venda_unitario).toBe('999.0000');
     const b = (await pool.query(`SELECT COUNT(*)::int n FROM precos_barra_trilho WHERE produto_id = $1`, [tec2.id])).rows[0];

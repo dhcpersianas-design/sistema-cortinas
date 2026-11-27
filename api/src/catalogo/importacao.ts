@@ -14,8 +14,8 @@ import {
  *   SKU que já existe = atualiza só as colunas preenchidas; SKU novo = cria.
  * - Aba "Barras de trilho": SKU, Tamanho (m), Custo, Venda (tabela por barra, 1 a 6 m).
  * - Nada é apagado: célula vazia mantém o valor atual; produto não listado fica como está.
- * - Venda vazia em produto novo ou barra = sugestão pelo markup padrão (100%: venda = 2x custo).
- *   Venda vazia em produto existente = mantém a venda atual.
+ * - Venda vazia em produto novo, em barra, ou em produto existente cujo custo mudou =
+ *   sugestão pelo markup padrão (100%: venda = 2x custo). Custo igual e venda vazia = mantém a venda.
  * - Primeiro gera a prévia (nada gravado); depois aplica. Toda importação aplicada
  *   guarda o "antes e depois" para poder ser desfeita.
  */
@@ -289,9 +289,18 @@ export async function analisar(db: Exec, lojaId: string, arquivo: string, lido: 
         : k === 'categoriaId' ? nomeCategoria.get(v as number) ?? String(v) : v == null || v === '' ? '(vazio)' : String(v));
       it.mudancas.push(`${ROTULO[k]}: ${fmt(a)} → ${fmt(n)}`);
     }
+    // Custo mudou e a coluna Venda veio vazia: recalcula a venda pelo markup padrão (decisão do Gabriel, 27/11/2026).
+    if (depois.custoUnitario && !l.venda) {
+      const sugerida = precoVendaSugerido(depois.custoUnitario, markupPct).toFixed(4);
+      if (!d(sugerida).eq(d(atual.precoVendaUnitario))) {
+        antes.precoVendaUnitario = atual.precoVendaUnitario;
+        depois.precoVendaUnitario = sugerida;
+        it.mudancas.push(`Venda: ${brl(atual.precoVendaUnitario)} → ${brl(sugerida)}`);
+      }
+      it.avisos.push(`Custo mudou e a coluna Venda está vazia: venda recalculada pelo markup padrão de ${Number(markupPct)}% (${brl(sugerida)}).`);
+    }
     if (!it.mudancas.length) { it.acao = 'SEM_MUDANCA'; continue; }
     it.acao = 'ATUALIZAR';
-    if (depois.custoUnitario && !l.venda) it.avisos.push('Custo mudou e a coluna Venda está vazia: a venda atual foi mantida.');
     if (depois.unidadeMedida) it.avisos.push('Mudar a unidade muda o jeito de calcular este produto nos próximos orçamentos.');
     if (atual.ativo === false) it.avisos.push('Este produto está inativo: os preços mudam, mas ele continua inativo.');
     operacoes.push({ tipo: 'ATUALIZAR_PRODUTO', produtoId: atual.id, antes, depois });
@@ -549,7 +558,7 @@ export async function planilhaPrecos(db: Banco): Promise<Buffer> {
     ['Regras'],
     ['• O SKU identifica o produto. SKU que já existe é atualizado; SKU novo é cadastrado.'],
     ['• Célula vazia mantém o valor atual. A importação nunca apaga produtos.'],
-    ['• Venda vazia: produto novo e barra recebem a sugestão do markup padrão (venda = 2x o custo); produto já cadastrado mantém a venda atual.'],
+    ['• Venda vazia: produto novo, barra e produto cujo custo mudou recebem a venda pelo markup padrão (venda = 2x o custo). Se o custo não mudou, a venda atual fica.'],
     ['• Valores em reais, com vírgula nos centavos (ex.: 1150,00). Até 4 casas decimais.'],
     ['• Linha de produto novo sem custo é ignorada (as linhas de SRV, MOT, ACP etc. em branco são os códigos que o orçamento usa; preencha para ativar).'],
     ['• Para o trilho ser cobrado por barra, preencha os 6 tamanhos. Até lá, ele é cobrado por metro.'],
