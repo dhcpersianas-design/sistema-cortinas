@@ -44,6 +44,15 @@ precisa usar o sistema na obra mesmo sem internet.
 - Precisam de internet: liberar com a senha do ADMIN, enviar a proposta, gerar PDF e link do WhatsApp,
   e ver o histórico.
 
+## Instalação e aceite offline (pronto no pedido)
+
+- Ao abrir **Instalações** com internet, o app baixa as instalações agendadas do vendedor (de ontem até 30 dias:
+  endereço, regras do condomínio, itens e peças, saldo a receber) para o IndexedDB (`web/lib/instalacoes-offline.ts`).
+- Sem internet: abrir a instalação, conferir os itens e colher a assinatura do cliente com o dedo. O aceite fica no
+  aparelho e é enviado sozinho quando a conexão volta (`POST /api/pedidos/:id/aceite`, id gerado no aparelho).
+- Aditivo de medição usa o configurador de orçamento, que já funciona offline.
+- Precisam de internet: aprovar o orçamento, confirmar aditivo, sinal, compras, agenda e os PDFs.
+
 ## Próximas etapas (com medição e orçamento, Fase 2)
 
 0. **Pacote para o dia**: ao abrir com internet, o app baixa agenda do dia, clientes,

@@ -45,6 +45,8 @@ export type Orcamento = {
   clienteId: string; clienteNome: string; clienteTelefone?: string; vendedorNome?: string;
   atualizadoEm: string | null; enviadoEm?: string | null; congeladoEm?: string | null; motivoPerda?: string | null;
   editavel: boolean; versaoMaisNovaId?: string; versaoMaisNova?: number; podeVerCustos?: boolean;
+  /** Pedido do projeto (depois de aprovado) e se este rascunho é um aditivo do pedido. */
+  pedidoId?: string | null; pedidoNumero?: string | null; aditivo?: boolean;
   condicoes: Condicoes; itens: Item[]; totais?: Totais;
   liberacao?: { exige: boolean; motivos: string[]; liberado: boolean; pendente: boolean; liberadoPorNome: string | null; liberadoEm: string | null };
   /** Só no aparelho */
@@ -217,11 +219,11 @@ export async function baixarPacote(): Promise<void> {
   await gravar('meta', new Date().toISOString(), 'orcamentosBaixadosEm');
 }
 
-export async function abrirOrcamento(id: string): Promise<{ orcamento: Orcamento; transicoes: string[]; offline: boolean } | null> {
+export async function abrirOrcamento(id: string): Promise<{ orcamento: Orcamento; transicoes: string[]; podeAprovar?: boolean; offline: boolean } | null> {
   const local = await ler<Orcamento>('orcamentos', id);
   if (local?.pendente) return { orcamento: local, transicoes: [], offline: false };
   try {
-    const r = await chamar<{ orcamento: Orcamento; transicoes: string[] }>(`/api/orcamentos/${id}`);
+    const r = await chamar<{ orcamento: Orcamento; transicoes: string[]; podeAprovar?: boolean }>(`/api/orcamentos/${id}`);
     await gravar('orcamentos', r.orcamento);
     return { ...r, offline: false };
   } catch (e) {

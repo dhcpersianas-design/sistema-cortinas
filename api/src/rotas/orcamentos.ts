@@ -103,7 +103,8 @@ export async function rotasOrcamentos(app: FastifyInstance) {
     if (!uuid.safeParse(req.params.id).success) return res.code(404).send({ erro: 'Orçamento não encontrado.' });
     const doc = await documento(req, req.params.id);
     if (!doc) return res.code(404).send({ erro: 'Orçamento não encontrado.' });
-    return { orcamento: doc, transicoes: doc.versaoMaisNovaId === doc.id ? TRANSICOES[doc.status] ?? [] : [] };
+    const transicoes = doc.versaoMaisNovaId === doc.id && !doc.aditivo ? TRANSICOES[doc.status] ?? [] : [];
+    return { orcamento: doc, transicoes, podeAprovar: transicoes.includes('PERDIDO') && doc.status !== 'RASCUNHO' && !doc.pedidoId };
   });
 
   /** Cria ou grava o orçamento inteiro (é também a sincronização do que foi feito offline). */

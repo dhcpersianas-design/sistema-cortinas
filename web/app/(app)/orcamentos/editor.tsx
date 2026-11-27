@@ -35,13 +35,15 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
   const [detalhar, setDetalhar] = useState(false);
   const [historico, setHistorico] = useState<{ eventos: Evento[]; versoes: Versao[] } | null>(null);
   const [motivoPerda, setMotivoPerda] = useState('');
+  const [podeAprovar, setPodeAprovar] = useState(false);
+  const [aprovacao, setAprovacao] = useState<{ medidasConferidas: boolean; formaPagamento: string } | null>(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
       const [r, cat] = await Promise.all([abrirOrcamento(id), carregarCatalogo().catch(() => null)]);
       if (cat) { setProdutos(cat.produtos); setCatalogo(cat.catalogo); }
-      if (r) { setDoc(r.orcamento); setTransicoes(r.transicoes); }
+      if (r) { setDoc(r.orcamento); setTransicoes(r.transicoes); setPodeAprovar(Boolean(r.podeAprovar)); }
       setHistorico(null);
     } catch (e) { setErro((e as Error).message); }
     setCarregando(false);
@@ -107,6 +109,21 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
       if (r.whatsapp) window.open(r.whatsapp, '_blank', 'noopener');
       else setOk(`Link da proposta: ${r.url}`);
     } catch (e) { setErro(e instanceof ErroApi ? e.message : 'Sem internet: o link precisa de conexão.'); }
+  }
+
+  /** Cliente aprovou: o orçamento vira pedido (precisa de internet). */
+  async function aprovar() {
+    if (!aprovacao) return;
+    setErro(null); setOk(null); setSalvando(true);
+    try {
+      const r = await chamar<{ pedido: { id: string } }>(`/api/orcamentos/${id}/aprovar`, 'POST', {
+        medidasConferidas: aprovacao.medidasConferidas, formaPagamento: aprovacao.formaPagamento || null,
+      });
+      window.location.href = `/pedidos?p=${r.pedido.id}`;
+    } catch (e) {
+      setErro(e instanceof ErroApi ? e.message : 'Sem internet: a aprovação precisa de conexão.');
+      setSalvando(false);
+    }
   }
 
   async function abrirHistorico() {
@@ -217,7 +234,19 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
           <button type="button" className="underline" onClick={() => onTrocarId(doc.versaoMaisNovaId!)}>Abrir a v{doc.versaoMaisNova}</button>
         </p>
       )}
-      {!doc.editavel && ultimaVersao && doc.status !== 'PERDIDO' && (
+      {doc.aditivo && doc.pedidoId && (
+        <p className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm">
+          Este rascunho é o <strong>aditivo do pedido {doc.pedidoNumero}</strong>. Ajuste medidas e itens aqui; depois confirme (ou descarte) no{' '}
+          <a className="underline" href={`/pedidos?p=${doc.pedidoId}`}>pedido</a>.
+        </p>
+      )}
+      {doc.status === 'APROVADO' && doc.pedidoId && (
+        <p className="rounded-md border border-emerald-500/50 bg-emerald-500/10 px-3 py-2 text-sm">
+          Aprovado pelo cliente: virou o <a className="font-medium underline" href={`/pedidos?p=${doc.pedidoId}`}>pedido {doc.pedidoNumero}</a>.
+          Mudanças agora são feitas por aditivo, no pedido.
+        </p>
+      )}
+      {!doc.editavel && ultimaVersao && doc.status !== 'PERDIDO' && doc.status !== 'APROVADO' && (
         <p className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
           Versão enviada ao cliente: os valores estão congelados. Para mudar (ex.: depois da medição), crie uma nova versão.
         </p>
@@ -403,6 +432,37 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
               <Button variant="ghost" onClick={() => aplicar(doc, { atualizarPrecos: true, mensagem: 'Preços atualizados pelo catálogo.' })}>Atualizar preços pelo catálogo</Button>
             )}
           </div>
+          {podeAprovar && ultimaVersao && (
+            <div className="space-y-2 border-t pt-3">
+              {!aprovacao ? (
+                <Button disabled={salvando} onClick={() => setAprovacao({ medidasConferidas: doc.condicoes.medidasConferidas, formaPagamento: doc.condicoes.formaPagamento ?? '' })}>
+                  Cliente aprovou: virar pedido
+                </Button>
+              ) : (
+                <div className="space-y-3 rounded-md border p-3 text-sm">
+                  <p className="font-medium">Aprovar a v{doc.versao} ({t ? moeda(t.total) : ''}) e criar o pedido</p>
+                  <label className="flex items-start gap-2">
+                    <input type="checkbox" className="mt-1" checked={aprovacao.medidasConferidas}
+                      onChange={(e) => setAprovacao({ ...aprovacao, medidasConferidas: e.target.checked })} />
+                    <span>As medidas já foram conferidas no local.
+                      <span className="block text-xs text-muted-foreground">Sem marcar, o pedido fica em &quot;Conferência de medidas&quot; e as compras só saem depois da medição.</span>
+                    </span>
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span>Forma de pagamento combinada</span>
+                    <select className={classeSelect} value={aprovacao.formaPagamento} onChange={(e) => setAprovacao({ ...aprovacao, formaPagamento: e.target.value })}>
+                      <option value="">A definir</option>
+                      {FORMAS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
+                    </select>
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <Button disabled={salvando} onClick={aprovar}>Confirmar aprovação</Button>
+                    <Button variant="ghost" onClick={() => setAprovacao(null)}>Cancelar</Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {transicoes.includes('PERDIDO') && (
             <div className="flex flex-wrap items-end gap-2 border-t pt-3">
               <Input className="w-64" placeholder="Motivo da perda (ex.: preço, prazo)" value={motivoPerda} onChange={(e) => setMotivoPerda(e.target.value)} />
