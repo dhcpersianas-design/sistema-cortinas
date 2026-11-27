@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { classeSelect } from '@/components/cadastro/campos';
+import { regrasDoModelo } from '@sistema/motor-calculo/navegador';
 import type { Item, ProdutoCatalogo } from '@/lib/orcamentos-offline';
 
 /**
@@ -46,6 +47,14 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
   const [unidade, setUnidade] = useState<Unidade>('m');
   const [erro, setErro] = useState<string | null>(null);
   const [confirmar, setConfirmar] = useState<string | null>(null);
+  // Modelo escolhido agora (para o quadro de regras). Os selects são livres; o form avisa quando mudam.
+  const [escolha, setEscolha] = useState<Record<string, string>>(() => ({
+    persiana: e.sku ?? '', tecido: e.tecido?.sku ?? '', forro: e.forro?.sku ?? '', trilho: e.skus?.trilho ?? '', acionamento: e.acionamento ?? 'MANUAL',
+  }));
+  function aoMudar(ev: React.FormEvent<HTMLFormElement>) {
+    const t = ev.target as HTMLSelectElement;
+    if (['persiana', 'tecido', 'forro', 'trilho', 'acionamento'].includes(t.name)) setEscolha((x) => ({ ...x, [t.name]: t.value }));
+  }
 
   const porCategoria = useMemo(() => {
     const m = (re: RegExp) => produtos.filter((p) => re.test(p.categoria));
@@ -58,6 +67,15 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
       controles: produtos.filter((p) => Number(p.metadata?.canais) > 0).sort((a, b) => Number(a.metadata.canais) - Number(b.metadata.canais)),
     };
   }, [produtos]);
+
+  const regras = useMemo(() => {
+    const obter = (sku: string) => produtos.find((p) => p.sku === sku);
+    // Sem escolha ainda: vale a primeira opção da lista (é a que aparece selecionada).
+    const ou = (v: string | undefined, lista: ProdutoCatalogo[]) => v || lista[0]?.sku;
+    return regrasDoModelo(tipo === 'PERSIANA'
+      ? { tipo, persiana: ou(escolha.persiana, porCategoria.persianas), acionamento: escolha.acionamento }
+      : { tipo, confeccao, tecido: ou(escolha.tecido, porCategoria.tecidos), forro: escolha.forro || undefined, trilho: ou(escolha.trilho, porCategoria.trilhos) }, obter);
+  }, [tipo, confeccao, escolha, produtos, porCategoria]);
 
   function salvar(ev: React.FormEvent<HTMLFormElement>) {
     ev.preventDefault();
@@ -125,7 +143,7 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
     : (temControleNoOrcamento(inicial?.id) ? '' : (porCategoria.controles[0]?.sku ?? ''));
 
   return (
-    <form onSubmit={salvar} className="grid gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2">
+    <form onSubmit={salvar} onChange={aoMudar} className="grid gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="ambiente">Ambiente</Label>
         <Input id="ambiente" name="ambiente" list="lista-ambientes" defaultValue={ambienteInicial} placeholder="Sala, Quarto casal…" required />
@@ -199,6 +217,8 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
       )}
       </Fragment>
 
+      {regras.length > 0 && <QuadroRegras regras={regras} />}
+
       {inicial && (
         <div className="flex flex-col gap-1.5 sm:col-span-2">
           <Label htmlFor="descricaoComercial">Descrição na proposta</Label>
@@ -243,6 +263,19 @@ function Selecao({ nome, rotulo, valor, opcoes, largo }: { nome: string; rotulo:
       <select id={nome} name={nome} defaultValue={valor ?? opcoes[0]?.[0]} className={classeSelect}>
         {opcoes.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
       </select>
+    </div>
+  );
+}
+
+/** Quadro de atenção com as regras do modelo escolhido. Só para o vendedor: não vai para o PDF. */
+export function QuadroRegras({ regras }: { regras: { titulo: string; texto: string }[] }) {
+  return (
+    <div role="note" className="rounded-md border border-amber-500/60 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100 sm:col-span-2">
+      <p className="font-semibold">⚠ Atenção: regras deste modelo</p>
+      <ul className="mt-1 list-disc space-y-0.5 pl-5">
+        {regras.map((r) => <li key={r.titulo}><span className="font-medium">{r.titulo}:</span> {r.texto}</li>)}
+      </ul>
+      <p className="mt-1 text-xs opacity-80">Só para você. O cliente não vê isto na proposta.</p>
     </div>
   );
 }
