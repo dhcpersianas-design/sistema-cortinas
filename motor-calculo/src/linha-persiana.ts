@@ -17,6 +17,9 @@
  *  - limites_por_opcao       limites que mudam com MOTORIZADO ou com um adicional (ex.: cascata)
  *  - motor_incluso           motorização própria da linha (ex.: Magic): não soma motor/controle avulsos
  *  - skus                    peças da linha (bandô, guia lateral...) no lugar das peças padrão
+ *  - bandos                  SKUs de bandô/sanefa que o vendedor pode escolher (opcional vendido à parte; 1º = padrão)
+ *  - rotulo_bando            nome da peça na tela e no PDF ("Sanefa" na vertical; padrão "Bandô")
+ *  - bando_incluso           a linha já vem com o bandô (ex.: Caixa Box): não mostra nem soma bandô avulso
  */
 import { Decimal, d, dinheiro, ErroEntrada, unitario } from './decimal.js';
 import type { ComponenteCalculado, Produto } from './tipos.js';
@@ -169,4 +172,21 @@ export function somarAdicionais(
     precoTotal,
     formulaLog: `${base.formulaLog}; adicionais: ${adicionais.map(textoAdicional).join(', ')}`,
   };
+}
+
+/** Bandô/sanefa vendido à parte: SKUs que o vendedor pode escolher (o 1º é o padrão). */
+export function bandosDoModelo(p: Pick<Produto, 'metadata'> | undefined): string[] {
+  const b = p?.metadata?.['bandos'];
+  return Array.isArray(b) ? b.filter((x): x is string => typeof x === 'string' && x.length > 0) : [];
+}
+
+/** "Sanefa" na vertical; "Bandô" nas demais. */
+export function rotuloBando(p: Pick<Produto, 'metadata'> | undefined): string {
+  const r = p?.metadata?.['rotulo_bando'];
+  return typeof r === 'string' && r ? r : 'Bandô';
+}
+
+/** A linha já vem com o bandô (ex.: Caixa Box). */
+export function bandoIncluso(p: Pick<Produto, 'metadata'> | undefined): boolean {
+  return p?.metadata?.['bando_incluso'] === true;
 }

@@ -111,7 +111,8 @@ export function descreverItem(i: Pick<ItemCompleto, 'tipo' | 'descricaoComercial
     const lado = e.ladoComando === 'ESQUERDO' ? 'comando à esquerda' : e.ladoComando === 'DIREITO' ? 'comando à direita' : null;
     add('Acionamento', e.acionamento === 'MOTORIZADO' ? 'Motorizado' : ['Manual', lado].filter(Boolean).join(' · '));
     add('Fixação', e.fixacao === 'TETO' ? 'No teto' : e.fixacao === 'PAREDE' ? 'Na parede' : null);
-    const acab = [e.possuiBando ? 'bandô' : null, e.possuiGuiaLateral ? 'guia lateral' : null, e.possuiCalhaInferior ? 'calha inferior' : null].filter(Boolean).join(', ');
+    const bando = i.componentes.some((c) => /sanefa/i.test(c.descricao ?? '')) ? 'sanefa' : 'bandô';
+    const acab = [e.possuiBando ? bando : null, e.possuiGuiaLateral ? 'guia lateral' : null, e.possuiCalhaInferior ? 'calha inferior' : null].filter(Boolean).join(', ');
     add('Acabamento', acab ? acab.charAt(0).toUpperCase() + acab.slice(1) : null);
   }
   add('Instalação', instalacao ? 'Inclusa' : null);

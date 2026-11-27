@@ -61,6 +61,7 @@ export const entradaPersiana = z.object({
   sentidoEnrolamento: z.enum(['NORMAL', 'REVERSO']),
   fixacao: z.enum(['TETO', 'PAREDE']).optional(),
   possuiBando: z.boolean().optional(),
+  skuBando: sku.optional(),
   folgaBandoM: num.optional(),
   possuiGuiaLateral: z.boolean().optional(),
   possuiCalhaInferior: z.boolean().optional(),

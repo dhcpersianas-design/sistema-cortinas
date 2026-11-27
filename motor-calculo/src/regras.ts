@@ -8,7 +8,7 @@
 import { d } from './decimal.js';
 import { SKUS_CORTINA_PADRAO } from './cortina.js';
 import { SKUS_PERSIANA_PADRAO } from './persiana.js';
-import { acionamentosDoModelo, adicionaisDoModelo, avisosDoModelo, MODELOS_ACIONAMENTO, textoAdicional } from './linha-persiana.js';
+import { acionamentosDoModelo, adicionaisDoModelo, avisosDoModelo, bandoIncluso, bandosDoModelo, MODELOS_ACIONAMENTO, rotuloBando, textoAdicional } from './linha-persiana.js';
 import type { Produto } from './tipos.js';
 
 export interface RegraModelo {
@@ -64,6 +64,8 @@ export function regrasDoModelo(e: ModeloEscolhido, obter: Obter): RegraModelo[] 
     for (const t of avisosDoModelo(p)) add('Atenção', t);
     const ads = adicionaisDoModelo(p);
     if (ads.length) add('Opcionais', ads.map(textoAdicional).join('; ') + '.');
+    if (bandoIncluso(p)) add('Bandô', 'Já vem com a peça (não soma bandô avulso).');
+    else if (bandosDoModelo(p).length) add(rotuloBando(p), `Opcional, vendido à parte: marque "${rotuloBando(p)}" e escolha o modelo.`);
     const acs = acionamentosDoModelo(p);
     if (acs.length) add('Acionamentos', acs.map((a) => MODELOS_ACIONAMENTO[a] ?? `Modelo ${a}`).join('; ') + '.');
     if (p.metadata?.['motor_incluso'] === true) {

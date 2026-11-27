@@ -2,6 +2,7 @@ import { Decimal, d, ErroEntrada, naoNegativo, positivo, ZERO, type Numerico } f
 import { componente, f2, fecharResultado, metaNum, obterAuxiliar } from './comum.js';
 import {
   acionamentosDoModelo, adicionaisAplicados, adicionaisDoModelo, limitesDoModelo, somarAdicionais,
+  bandosDoModelo, rotuloBando, bandoIncluso,
 } from './linha-persiana.js';
 import type { Alerta, Catalogo, ComponenteCalculado, Produto, ResultadoCalculo } from './tipos.js';
 
@@ -61,6 +62,8 @@ export interface EntradaPersiana {
   sentidoEnrolamento: 'NORMAL' | 'REVERSO';
   fixacao?: 'TETO' | 'PAREDE';
   possuiBando?: boolean;
+  /** Qual bandô/sanefa da linha (metadata.bandos). Sem ele, usa o primeiro da lista ou skus.bando. */
+  skuBando?: string;
   folgaBandoM?: Numerico;
   possuiGuiaLateral?: boolean;
   possuiCalhaInferior?: boolean;
@@ -260,8 +263,18 @@ export function calcularPersiana(e: EntradaPersiana, catalogo: Catalogo): Result
   }
 
   // ---------- Passo B ----------
-  if (e.possuiBando) {
-    const p = obterAuxiliar(catalogo, skus.bando, alertas, 'O bandô');
+  const nomeBando = rotuloBando(pPer);
+  const opcoesBando = bandosDoModelo(pPer);
+  if (e.skuBando && opcoesBando.length > 0 && !opcoesBando.includes(e.skuBando)) {
+    throw new ErroEntrada(`${nomeBando} ${e.skuBando} não serve para ${pPer.nome} (use ${opcoesBando.join(', ')}).`);
+  }
+  const skuBando = e.skuBando ?? opcoesBando[0] ?? skus.bando;
+  const comBando = !!e.possuiBando && !bandoIncluso(pPer);
+  if (e.possuiBando && bandoIncluso(pPer)) {
+    alertas.push({ codigo: 'BANDO_INCLUSO', severidade: 'INFO', mensagem: `${pPer.nome} já vem com o bandô: não somei bandô avulso.` });
+  }
+  if (comBando) {
+    const p = obterAuxiliar(catalogo, skuBando, alertas, `${nomeBando === 'Bandô' ? 'O bandô' : `A ${nomeBando.toLowerCase()}`}`);
     const folga = naoNegativo('folgaBandoM', e.folgaBandoM ?? 0);
     if (p) {
       const min = metaNum(p, 'min_ml', '1.00');
@@ -311,7 +324,9 @@ export function calcularPersiana(e: EntradaPersiana, catalogo: Catalogo): Result
     sentidoEnrolamento: e.sentidoEnrolamento,
     fixacao: e.fixacao,
     tuboMinimoRecomendado: tuboRecomendado(L),
-    bando: !!e.possuiBando,
+    bando: comBando,
+    bandoSku: comBando ? skuBando : undefined,
+    rotuloBando: nomeBando,
     guiaLateral: !!e.possuiGuiaLateral,
     calhaInferior: !!e.possuiCalhaInferior,
   });

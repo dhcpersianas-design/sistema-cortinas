@@ -231,7 +231,7 @@ export async function pdfProducao(db: Banco, pedidoId: string, tipo: 'CORTINA' |
         ['Enrolamento', ENROLAMENTO[String(esp.sentidoEnrolamento)] ?? String(esp.sentidoEnrolamento ?? '-')],
         ['Fixação', FIXACAO[String(esp.fixacao)] ?? (esp.fixacao ? String(esp.fixacao) : 'Não informada')],
         ['Tubo mínimo', String(esp.tuboMinimoRecomendado ?? '-')],
-        ['Bando', esp.bando ? 'Sim' : 'Não'], ['Guia lateral', esp.guiaLateral ? 'Sim' : 'Não'], ['Calha inferior', esp.calhaInferior ? 'Sim' : 'Não'],
+        [String(esp.rotuloBando ?? 'Bandô'), esp.bando ? (esp.bandoSku ? `Sim (${String(esp.bandoSku)})` : 'Sim') : 'Não'], ['Guia lateral', esp.guiaLateral ? 'Sim' : 'Não'], ['Calha inferior', esp.calhaInferior ? 'Sim' : 'Não'],
       ]);
     }
     const materiais = i.componentes.filter((c) => b.categoria.get(c.sku) !== CATEGORIA_INSTALACAO);

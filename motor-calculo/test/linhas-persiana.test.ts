@@ -144,3 +144,30 @@ describe('cortina motorizada com trilho Slim', () => {
     expect(w.alertas.find((a) => a.codigo === 'TRILHO_MOTORIZADO_MODELO')!.severidade).toBe('CRITICO');
   });
 });
+
+describe('bandô e sanefa vendidos à parte', () => {
+  const SAN_AL: Produto = { sku: 'TST-SAN-AL', nome: 'Sanefa Alumínio', unidade: 'ML', custoUnitario: '34.50', precoVendaUnitario: '69.00' };
+  const SAN_PVC: Produto = { sku: 'TST-SAN-PVC', nome: 'Sanefa PVC', unidade: 'ML', custoUnitario: '28.75', precoVendaUnitario: '57.50' };
+  const VERT: Produto = { sku: 'TST-VERT', nome: 'Vertical Tecido Linen', unidade: 'M2', custoUnitario: '84.53', precoVendaUnitario: '169.06',
+    metadata: { enrolavel: false, bandos: ['TST-SAN-AL', 'TST-SAN-PVC'], rotulo_bando: 'Sanefa' } };
+  const BOX: Produto = { sku: 'TST-BOX', nome: 'Rolo Caixa Box 70 mm', unidade: 'M2', custoUnitario: '315.65', precoVendaUnitario: '631.30',
+    metadata: { bando_incluso: true } };
+  const c3 = criarCatalogo([...PRODUTOS_SEED, SAN_AL, SAN_PVC, VERT, BOX]);
+  const vert = (extra: Record<string, unknown>) => calcularPersiana({ ...base, sku: 'TST-VERT', medida: { tipo: 'PRODUCAO', largura: '2.00', altura: '2.00' }, acionamento: 'MANUAL', ...extra }, c3);
+
+  it('sem marcar não soma; marcando usa a 1ª sanefa ou a escolhida', () => {
+    expect(vert({}).componentes.map((c) => c.sku).filter((s) => !s.startsWith('SRV'))).toEqual(['TST-VERT']);
+    expect(vert({ possuiBando: true }).componentes.map((c) => c.sku)).toContain('TST-SAN-AL');
+    const pvc = vert({ possuiBando: true, skuBando: 'TST-SAN-PVC' });
+    expect(pvc.componentes.find((c) => c.sku === 'TST-SAN-PVC')!.custoTotal.toFixed(2)).toBe('57.50');
+    expect(() => vert({ possuiBando: true, skuBando: 'ACP-001' })).toThrow(/não serve/);
+    expect(descricaoComercial({ tipo: 'PERSIANA', entrada: { ...base, sku: 'TST-VERT', medida: { tipo: 'PRODUCAO', largura: '2.00', altura: '2.00' }, acionamento: 'MANUAL', possuiBando: true } }, c3))
+      .toBe('Vertical Tecido Linen, c/ sanefa (2,00 m x 2,00 m)');
+  });
+
+  it('Caixa Box já vem com bandô: não soma avulso', () => {
+    const r = calcularPersiana({ ...base, sku: 'TST-BOX', medida: { tipo: 'PRODUCAO', largura: '1.20', altura: '1.50' }, acionamento: 'MANUAL', possuiBando: true }, c3);
+    expect(r.componentes.map((c) => c.sku).filter((s) => !s.startsWith('SRV'))).toEqual(['TST-BOX']);
+    expect(r.alertas.map((a) => a.codigo)).toContain('BANDO_INCLUSO');
+  });
+});

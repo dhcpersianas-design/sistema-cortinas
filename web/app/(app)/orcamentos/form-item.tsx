@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { classeSelect } from '@/components/cadastro/campos';
-import { MODELOS_ACIONAMENTO, adicionaisDoModelo, acionamentosDoModelo, regrasDoModelo, textoAdicional, textoDisponibilidade } from '@sistema/motor-calculo/navegador';
+import { MODELOS_ACIONAMENTO, adicionaisDoModelo, acionamentosDoModelo, bandoIncluso, bandosDoModelo, rotuloBando, regrasDoModelo, textoAdicional, textoDisponibilidade } from '@sistema/motor-calculo/navegador';
 import type { Item, ProdutoCatalogo } from '@/lib/orcamentos-offline';
 
 /**
@@ -155,7 +155,8 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
           sku: s('persiana'),
           medida: modo === 'PRODUCAO' ? { tipo: 'PRODUCAO', largura: larg, altura: alt } : { tipo: 'VAO_BRUTO', modo, largura: larg, altura: alt },
           acionamento: s('acionamento'), ladoComando: s('ladoComando'), sentidoEnrolamento: s('sentidoEnrolamento'),
-          possuiBando: f.get('possuiBando') === 'on', possuiGuiaLateral: f.get('possuiGuiaLateral') === 'on',
+          possuiBando: f.get('possuiBando') === 'on', ...(f.get('possuiBando') === 'on' && s('skuBando') ? { skuBando: s('skuBando') } : {}),
+          possuiGuiaLateral: f.get('possuiGuiaLateral') === 'on',
           ...(s('modeloAcionamento') ? { modeloAcionamento: s('modeloAcionamento') } : {}),
           ...(f.getAll('adicional').length ? { adicionais: f.getAll('adicional').map(String) } : {}),
           ...(motor ? {
@@ -311,9 +312,16 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
             opcoes={[['', 'Sem controle neste item (usa o de outra persiana)'], ...porCategoria.controles.map((p) => [p.sku, `${p.nome} (${p.metadata.canais} canal/is)`] as [string, string])]} />
           <CampoTexto nome="qtdHubs" rotulo="Hub Wi-Fi (se motorizada)" valor={String(e.qtdHubs ?? 0)} />
           <div className="flex flex-wrap gap-4 sm:col-span-2">
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="possuiBando" defaultChecked={Boolean(e.possuiBando)} /> Bandô</label>
+            {!bandoIncluso(persianaAtual) && (
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="possuiBando" defaultChecked={Boolean(e.possuiBando)} /> {rotuloBando(persianaAtual)} (opcional, à parte)</label>
+            )}
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="possuiGuiaLateral" defaultChecked={Boolean(e.possuiGuiaLateral)} /> Guia lateral</label>
           </div>
+          {!bandoIncluso(persianaAtual) && bandosDoModelo(persianaAtual).length > 1 && (
+            <Selecao key={`bd-${persianaAtual?.sku}`} nome="skuBando" rotulo={`Modelo da ${rotuloBando(persianaAtual).toLowerCase()} (se marcada)`} largo
+              valor={e.sku === persianaAtual?.sku ? e.skuBando ?? bandosDoModelo(persianaAtual)[0] : bandosDoModelo(persianaAtual)[0]}
+              opcoes={bandosDoModelo(persianaAtual).map((sku) => [sku, `${produtos.find((p) => p.sku === sku)?.nome ?? sku} (${sku})`] as [string, string])} />
+          )}
           {adicionaisDoModelo(persianaAtual).some((a) => !a.automatico) && (
             <fieldset key={`ad-${persianaAtual?.sku}`} className="flex flex-col gap-1.5 sm:col-span-2">
               <legend className="mb-1 text-sm font-medium">Opcionais desta linha</legend>

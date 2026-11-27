@@ -12,7 +12,7 @@ import { Decimal, d, dinheiro, ErroEntrada, ZERO, type Numerico } from './decima
 import { componente, margemPct } from './comum.js';
 import { calcularCortina, type EntradaCortina } from './cortina.js';
 import { calcularPersiana, medidaProducao, type EntradaPersiana } from './persiana.js';
-import { adicionaisAplicados } from './linha-persiana.js';
+import { adicionaisAplicados, bandoIncluso, rotuloBando } from './linha-persiana.js';
 import { semaforoMargem, LIMITES_SEMAFORO_PADRAO, type CorSemaforo, type LimitesSemaforo } from './precificacao.js';
 import type { Alerta, Catalogo, ComponenteCalculado, Produto, ResultadoCalculo } from './tipos.js';
 
@@ -197,7 +197,7 @@ export function descricaoComercial(item: EntradaItem, catalogo: Catalogo): strin
   const p = catalogo.obter(e.sku);
   const doCliente = adicionaisAplicados(p, e.adicionais, { larguraPeca: m.largura.div(e.numPecas ?? 1), motorizado: e.acionamento === 'MOTORIZADO' })
     .map((a) => a.descricao).filter((x): x is string => !!x);
-  const extras = [...doCliente, e.acionamento === 'MOTORIZADO' ? 'motorizada' : null, e.possuiBando ? 'c/ bandô' : null].filter(Boolean).join(', ');
+  const extras = [...doCliente, e.acionamento === 'MOTORIZADO' ? 'motorizada' : null, e.possuiBando && !bandoIncluso(p) ? `c/ ${rotuloBando(p).toLowerCase()}` : null].filter(Boolean).join(', ');
   return `${p.nome}${extras ? `, ${extras}` : ''} (${br(m.largura)} m x ${br(m.altura)} m)`;
 }
 
