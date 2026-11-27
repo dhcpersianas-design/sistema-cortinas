@@ -347,6 +347,8 @@ export function garantiaMesesProduto(p: Pick<Produto, 'nome' | 'metadata' | 'cat
   const m = p.metadata?.['garantia_meses'];
   if (m !== undefined && m !== null && m !== '' && Number.isFinite(Number(m))) return Math.round(Number(m));
   if (/motor/i.test(p.nome) || p.metadata?.['torque_nm'] !== undefined) return 60;
+  // Caixa Box e Shangrilá ficam com 12 meses, mesmo dentro de Rolo (Gabriel, 27/11/2026).
+  if (/(caixa box|shangri)/i.test(`${p.nome} ${p.categoria ?? ''}`)) return 12;
   if (/persiana/i.test(p.nome) && /(rolo|double vision|painel)/i.test(p.nome)) return 24;
   if (/^persianas › (rolo|painel)\b/i.test(p.categoria ?? '')) return 24;
   return 12;

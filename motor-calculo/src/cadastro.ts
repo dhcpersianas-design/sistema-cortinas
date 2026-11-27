@@ -49,7 +49,7 @@ export const MODELOS_CADASTRO: Record<PerfilCadastro, ModeloCadastro> = {
       { chave: 'alt_min', rotulo: 'Altura mínima cobrada', tipo: 'numero', sufixo: 'm', dica: 'Peça mais baixa é cobrada por esta altura.' },
       { chave: 'alt_max', rotulo: 'Altura máxima', tipo: 'numero', sufixo: 'm', dica: 'Acima disso o vendedor é avisado para consultar a fábrica.' },
       { chave: 'area_min', rotulo: 'Área mínima cobrada', tipo: 'numero', sufixo: 'm²', dica: 'Peça menor é cobrada por esta área.' },
-      garantia('12 meses (Rolo, Double Vision e Painel: 24 meses)'),
+      garantia('12 meses (Rolo, Double Vision e Painel: 24 meses; Caixa Box e Shangrilá: 12)'),
     ],
   },
   TECIDO: {
@@ -168,3 +168,9 @@ export function metadataDosCampos(
   }
   return { metadata, erros };
 }
+
+/**
+ * Trava de segurança para alteração em massa (Gabriel, 27/11/2026): mais de `limite` itens
+ * mudando de uma vez (markup, importação de preços...) exige digitar `palavra` e clicar em Continuar.
+ */
+export const ALTERACAO_EM_MASSA = { limite: 10, palavra: 'ALTERAR' } as const;

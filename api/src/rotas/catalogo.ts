@@ -12,6 +12,8 @@ import { mensagemErro, termoLike, textoOpcional } from '../cadastros/campos.js';
 import { aplicar, desfazer, lerArquivo, listarImportacoes, planilhaPrecos, analisar } from '../catalogo/importacao.js';
 import { ErroPlanilha } from '../planilhas/xlsx.js';
 import { carregarCategorias, erroCategoriaProduto, markupDe, type CategoriaArvore } from '../catalogo/categorias.js';
+import { aplicarMarkup, erroMarkupCategoria, previaMarkup } from '../catalogo/markup-categoria.js';
+import { faltaConfirmacao, respostaConfirmacao } from '../catalogo/confirmacao.js';
 
 /**
  * Catálogo de componentes (especificação v1.1, seções 7 e 13).
@@ -78,7 +80,10 @@ const markupCampo = z.union([z.string(), z.number()]).nullable().transform((v, c
 const corpoEditarCategoria = z.object({
   nome: z.string().trim().min(2, 'Informe o nome').max(80).optional(),
   markupPct: markupCampo.optional(),
+  /** Palavra ALTERAR, exigida quando o markup muda o preço de mais de 10 itens. */
+  confirmacao: z.string().max(20).optional(),
 });
+const corpoPreviaMarkup = z.object({ markupPct: markupCampo });
 
 const iguais = (a: string | null | undefined, b: string | null | undefined) =>
   a == null || b == null ? a == b : d(a).eq(d(b));
@@ -194,7 +199,23 @@ export async function rotasCatalogo(app: FastifyInstance) {
     });
   });
 
-  /** Renomeia e/ou muda o markup. Markup vazio numa subcategoria = usa o da categoria de cima. */
+  /** Prévia da troca de markup: quais preços de venda mudam (nada é gravado). */
+  app.post<{ Params: { id: string } }>('/api/catalogo/categorias/:id/markup/previa', editarPrecos, async (req, res) => {
+    const corpo = corpoPreviaMarkup.safeParse(req.body);
+    if (!corpo.success) return res.code(400).send({ erro: mensagemErro(corpo.error) });
+    const cats = await categorias(req.usuario!.lojaId);
+    const c = cats.find((x) => x.id === Number(req.params.id));
+    const e = erroMarkupCategoria(c);
+    if (e) return res.code(c ? 400 : 404).send({ erro: e });
+    if (corpo.data.markupPct === null && c!.paiId === null) return res.code(400).send({ erro: 'Informe o markup.' });
+    return previaMarkup(app.db, cats, c!, corpo.data.markupPct);
+  });
+
+  /**
+   * Renomeia e/ou muda o markup. Markup só muda em categoria final (subcategoria); vazio = usa o da
+   * categoria de cima. Mudar o markup RECALCULA a venda de todos os produtos da subcategoria
+   * (e das barras do trilho). Sempre exige confirmacao = "ALTERAR".
+   */
   app.patch<{ Params: { id: string } }>('/api/catalogo/categorias/:id', editarPrecos, async (req, res) => {
     const id = Number(req.params.id);
     const corpo = corpoEditarCategoria.safeParse(req.body);
@@ -210,13 +231,30 @@ export async function rotasCatalogo(app: FastifyInstance) {
       }
       mudar.nome = corpo.data.nome;
     }
-    if (corpo.data.markupPct !== undefined) {
-      if (corpo.data.markupPct === null && c.paiId === null) return res.code(400).send({ erro: 'Categoria principal precisa de markup.' });
-      mudar.markupPct = corpo.data.markupPct;
+    const novoMarkup = corpo.data.markupPct;
+    const mudaMarkup = novoMarkup !== undefined && (novoMarkup === null ? c.markupPct !== null : c.markupPct === null || !d(novoMarkup).eq(d(c.markupPct)));
+    if (mudaMarkup) {
+      const e = erroMarkupCategoria(c);
+      if (e) return res.code(400).send({ erro: e });
+      if (novoMarkup === null && c.paiId === null) return res.code(400).send({ erro: 'Informe o markup.' });
     }
-    if (Object.keys(mudar).length === 0) return { ok: true };
-    await app.db.update(categoriasProduto).set(mudar).where(eq(categoriasProduto.id, id));
-    return { ok: true, categoria: (await categorias(req.usuario!.lojaId)).find((x) => x.id === id) };
+    if (Object.keys(mudar).length === 0 && !mudaMarkup) return { ok: true, alterados: 0 };
+    if (mudaMarkup) {
+      const p = await previaMarkup(app.db, cats, c, novoMarkup!);
+      // Markup: SEMPRE pede ALTERAR (Gabriel, 27/11/2026), mesmo sem produto na subcategoria.
+      if (faltaConfirmacao(1, corpo.data.confirmacao, 0)) return res.code(428).send({ ...respostaConfirmacao(p.afetados), erro: `Mudar o markup de ${c.caminho} altera ${p.afetados} preço(s). Para continuar, digite ALTERAR e clique em Continuar.` });
+    }
+    const alterados = await app.db.transaction(async (tx) => {
+      if (Object.keys(mudar).length) await tx.update(categoriasProduto).set(mudar).where(eq(categoriasProduto.id, id));
+      if (!mudaMarkup) return 0;
+      await tx.execute(sql`SELECT id FROM categorias_produto WHERE id = ${id} FOR UPDATE`);
+      const previa = await previaMarkup(tx, cats, c, novoMarkup!);
+      // Mudou algo entre a checagem e agora e passou de 10: pede de novo.
+      if (faltaConfirmacao(1, corpo.data.confirmacao, 0)) throw Object.assign(new Error(respostaConfirmacao(previa.afetados).erro), { statusCode: 428 });
+      await aplicarMarkup(tx, previa, novoMarkup!, req.usuario!.id);
+      return previa.afetados;
+    });
+    return { ok: true, alterados, categoria: (await categorias(req.usuario!.lojaId)).find((x) => x.id === id) };
   });
 
   app.get('/api/catalogo/preco-sugerido', editarPrecos, async (req, res) => {
@@ -414,6 +452,10 @@ export async function rotasCatalogo(app: FastifyInstance) {
   app.post('/api/catalogo/importacao/aplicar', importar, async (req, res) => {
     const r = lerCorpoArquivo(req.body);
     if ('erro' in r) return res.code(400).send({ erro: r.erro });
+    // Trava de segurança: mais de 10 alterações = só com a palavra ALTERAR.
+    const confirmacao = (req.body as { confirmacao?: unknown }).confirmacao;
+    const antes = (await analisar(app.db, req.usuario!.lojaId, r.nome, r.lido)).previa.resumo;
+    if (faltaConfirmacao(antes.criar + antes.atualizar, confirmacao)) return res.code(428).send(respostaConfirmacao(antes.criar + antes.atualizar));
     const { previa, importacaoId } = await aplicar(app.db, req.usuario!.lojaId, req.usuario!.id, r.nome, r.lido);
     if (!importacaoId) return res.code(400).send({ erro: 'Nada para aplicar: a planilha não muda nenhum preço.', previa });
     return res.code(201).send({ importacaoId, previa });
@@ -425,6 +467,8 @@ export async function rotasCatalogo(app: FastifyInstance) {
 
   app.post<{ Params: { id: string } }>('/api/catalogo/importacoes/:id/desfazer', { preHandler: exigir('catalogo.editar') }, async (req, res) => {
     if (!z.uuid().safeParse(req.params.id).success) return res.code(404).send({ erro: 'Importação não encontrada.' });
+    const [imp] = (await app.db.execute(sql`SELECT COUNT(*)::int AS n FROM importacoes_preco_itens WHERE importacao_id = ${req.params.id}`)).rows as { n: number }[];
+    if (faltaConfirmacao(imp?.n ?? 0, (req.body as { confirmacao?: unknown } | undefined)?.confirmacao)) return res.code(428).send(respostaConfirmacao(imp!.n));
     const r = await desfazer(app.db, req.usuario!.lojaId, req.usuario!.id, req.params.id);
     if ('erro' in r) return res.code(r.status ?? 400).send({ erro: r.erro });
     return r;
