@@ -81,6 +81,10 @@ type Cabecalho = {
   liberadoPorId: string | null; liberadoPorNome: string | null; liberadoEm: string | null;
   liberadoMargemPct: string | null; liberadoDescontoPct: string | null; descontoMaxPct: string | null;
   ultimaOperacaoId: string | null; versaoMaisNovaId: string; versaoMaisNova: number;
+  /** Rascunho aberto como aditivo de um pedido (vira pedido ao confirmar no pedido). */
+  aditivoPedidoId: string | null;
+  /** Pedido do projeto (se já foi aprovado). */
+  pedidoId: string | null; pedidoNumero: string | null;
 };
 
 const SELECT_CABECALHO = sql`
@@ -105,12 +109,14 @@ const SELECT_CABECALHO = sql`
          o.liberado_por_id AS "liberadoPorId", lib.nome AS "liberadoPorNome", o.liberado_em AS "liberadoEm",
          o.liberado_margem_pct AS "liberadoMargemPct", o.liberado_desconto_pct AS "liberadoDescontoPct",
          u.desconto_max_pct AS "descontoMaxPct", o.ultima_operacao_id AS "ultimaOperacaoId",
-         ult.id AS "versaoMaisNovaId", ult.versao AS "versaoMaisNova"
+         ult.id AS "versaoMaisNovaId", ult.versao AS "versaoMaisNova",
+         o.aditivo_pedido_id AS "aditivoPedidoId", ped.id AS "pedidoId", ped.numero_pedido AS "pedidoNumero"
     FROM orcamentos o
     JOIN clientes c ON c.id = o.cliente_id
     JOIN usuarios u ON u.id = o.vendedor_id
     LEFT JOIN usuarios lib ON lib.id = o.liberado_por_id
-    JOIN LATERAL (SELECT id, versao FROM orcamentos x WHERE x.grupo_id = o.grupo_id ORDER BY versao DESC LIMIT 1) ult ON TRUE`;
+    JOIN LATERAL (SELECT id, versao FROM orcamentos x WHERE x.grupo_id = o.grupo_id ORDER BY versao DESC LIMIT 1) ult ON TRUE
+    LEFT JOIN pedidos ped ON ped.grupo_orcamento_id = o.grupo_id`;
 
 type LinhaItem = {
   id: string; ambiente: string; tipo: 'CORTINA' | 'PERSIANA'; descricaoComercial: string; ordem: number;
@@ -192,6 +198,8 @@ export function documentoPublico(u: UsuarioSessao, doc: NonNullable<Awaited<Retu
     vendedorId: c.vendedorId, vendedorNome: c.vendedorNome,
     dataCriacao: c.dataCriacao, atualizadoEm: c.atualizadoEm, enviadoEm: c.enviadoEm, congeladoEm: c.congeladoEm, motivoPerda: c.motivoPerda,
     editavel, versaoMaisNovaId: c.versaoMaisNovaId, versaoMaisNova: c.versaoMaisNova,
+    pedidoId: c.pedidoId, pedidoNumero: c.pedidoNumero,
+    aditivo: ehRascunhoAditivo(c),
     podeVerCustos: verCusto,
     condicoes: {
       descontoTipo: c.descontoTipo, descontoValor: c.descontoInformado, acrescimo: c.acrescimo,
@@ -315,22 +323,29 @@ async function clienteDoEscopo(db: Exec, u: UsuarioSessao, clienteId: string) {
   return Boolean(c);
 }
 
+/** Rascunho aberto como aditivo de pedido: não é enviado nem aprovado pelo orçamento, e sim no pedido. */
+export function ehRascunhoAditivo(c: Pick<Cabecalho, 'status' | 'aditivoPedidoId'>) {
+  return c.status === 'RASCUNHO' && Boolean(c.aditivoPedidoId);
+}
+
 /** Copia o cabeçalho para a próxima versão (rascunho). Itens: copia o snapshot ou nenhum. */
-async function criarVersao(tx: Tx, origem: Cabecalho, u: UsuarioSessao, copiarItens: boolean): Promise<string> {
+export async function criarVersao(tx: Tx, origem: Cabecalho, u: UsuarioSessao, copiarItens: boolean): Promise<string> {
   const id = randomUUID();
   await tx.execute(sql`
     INSERT INTO orcamentos (id, loja_id, codigo_sequencial, versao, orcamento_origem_id, grupo_id, cliente_id, vendedor_id, status,
       titulo, criado_por_id, validade_ate, desconto_tipo, desconto_informado, desconto_valor, desconto_percentual, acrescimo_outros,
       forma_pagamento_prevista, parcelas, prazo_entrega_dias, garantia_texto, condicoes_pagamento_texto,
       observacoes_cliente, observacoes_internas, medidas_conferidas,
-      liberado_por_id, liberado_em, liberado_margem_pct, liberado_desconto_pct)
+      liberado_por_id, liberado_em, liberado_margem_pct, liberado_desconto_pct, aditivo_pedido_id)
     SELECT ${id}, loja_id, codigo_sequencial,
            (SELECT MAX(versao) + 1 FROM orcamentos WHERE grupo_id = ${origem.grupoId}), ${origem.id}, grupo_id, cliente_id, vendedor_id,
            'RASCUNHO', titulo, ${u.id}, NULL, desconto_tipo, desconto_informado, desconto_valor, desconto_percentual, acrescimo_outros,
            forma_pagamento_prevista, parcelas, prazo_entrega_dias, garantia_texto, condicoes_pagamento_texto,
            observacoes_cliente, observacoes_internas, medidas_conferidas,
            -- A liberação do ADMIN segue valendo enquanto margem e desconto não piorarem.
-           liberado_por_id, liberado_em, liberado_margem_pct, liberado_desconto_pct
+           liberado_por_id, liberado_em, liberado_margem_pct, liberado_desconto_pct,
+           -- Conflito dentro de um aditivo continua sendo o aditivo do mesmo pedido.
+           CASE WHEN status = 'RASCUNHO' THEN aditivo_pedido_id END
       FROM orcamentos WHERE id = ${origem.id}`);
   if (copiarItens) {
     for (const i of await lerItens(tx, origem.id)) await inserirItem(tx, id, randomUUID(), i, i.componentes);
@@ -554,6 +569,7 @@ export async function mudarStatus(db: Banco, u: UsuarioSessao, id: string, statu
   const c = await lerCabecalho(db, id);
   if (!c || !noEscopo(u, c)) throw new ErroOrcamento('Orçamento não encontrado.', 404);
   if (c.versaoMaisNovaId !== c.id) throw new ErroOrcamento(`Use a versão mais nova (v${c.versaoMaisNova}).`, 409);
+  if (ehRascunhoAditivo(c)) throw new ErroOrcamento(`Este rascunho é um aditivo do pedido ${c.pedidoNumero ?? ''}: confirme ou descarte no pedido.`, 409);
   if (!(TRANSICOES[c.status] ?? []).includes(status)) throw new ErroOrcamento(`Não é possível passar de ${c.status} para ${status}.`, 409);
   if (status === 'PERDIDO' && !motivoPerda) throw new ErroOrcamento('Informe o motivo da perda.');
   await db.transaction(async (tx) => {

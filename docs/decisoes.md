@@ -140,7 +140,7 @@ pelo app offline) e `api/src/orcamentos/`.
 - **Medidas** em metros ou centímetros (o vendedor escolhe); largura acima de 15 m ou altura acima de 10 m
   pede confirmação no app e é recusada pela API.
 - **Status**: Rascunho → Enviado → Aguardando medição → Em negociação; Perdido (com motivo) a qualquer momento.
-  Aprovar e virar pedido fica para a próxima etapa.
+  Aprovado = vira pedido (ver seção do pedido abaixo).
 
 Decididos pelo Gabriel em 27/11/2026 (editáveis em `parametros_sistema` ou no próprio orçamento):
 - Validade da proposta: 15 dias.
@@ -152,3 +152,41 @@ Decididos pelo Gabriel em 27/11/2026 (editáveis em `parametros_sistema` ou no p
   motorizadas de todo o orçamento e sugere o menor controle que cobre todas (1 peça: 1 canal; 2 a 6: 6 canais;
   7 a 16: 16 canais; acima de 16, vários de 16 + o menor que cobre o resto). O vendedor aplica com
   "Usar sugestão" ou escolhe à mão. Persiana nova vem sem controle se o orçamento já tem um.
+
+## Pedido, compras, produção e instalação (Fase 2, migração 0005)
+
+Caminho do pedido (seção 9 da especificação v1.1):
+
+```
+orçamento ENVIADO/AGUARDANDO_MEDICAO/EM_NEGOCIACAO --"Cliente aprovou"--> pedido
+  medidas não conferidas -> CONFERENCIA_MEDIDAS (não libera compras)
+      sem mudança -> AGUARDANDO_SINAL | com mudança -> aditivo de medição -> AGUARDANDO_SINAL
+  AGUARDANDO_SINAL --sinal (ou liberação sem sinal, ADMIN)--> EM_COMPRA (gera as ordens por fornecedor)
+  EM_COMPRA -> EM_PRODUCAO (todas as ordens enviadas) -> PRONTO_ESTOQUE (todas recebidas)
+  -> INSTALACAO_AGENDADA -> INSTALADO_CONCLUIDO (aceite assinado do cliente)
+  CANCELADO (ADMIN) a qualquer momento antes da instalação
+```
+
+- **1 pedido por projeto.** Só a versão mais nova, já enviada (congelada), pode ser aprovada.
+- **Aditivo** (12.4): é uma nova versão do orçamento ligada ao pedido, editada no mesmo configurador
+  (funciona offline). Confirmar troca a versão que vale no pedido, registra valor anterior, novo e diferença,
+  e passa pela mesma trava de margem/desconto (senha do ADMIN). Descartar apaga o rascunho. Um aditivo aberto por vez.
+  Depois das compras, o aditivo gera ordens **complementares** só com o que falta; o que foi comprado a mais vira aviso.
+- **Compras**: componentes da versão vigente agrupados pelo fornecedor padrão do produto no catálogo (o de hoje).
+  Fornecedor COSTUREIRA vira "ordem de costura" (com ficha de corte), PERSIANA vira "pedido à fábrica".
+  Serviço de instalação (categoria 9) não vira compra. Produto sem fornecedor padrão cai numa ordem "a definir".
+- **Status segue as ordens** sozinho. A instalação pode ser pré-agendada durante a produção; quando tudo chega, fica
+  "Instalação agendada".
+- **PDFs para terceiros** (sem login, link de 30 dias pelo WhatsApp): ficha de corte, pedido de fábrica, ordem de compra,
+  OS de instalação. Nenhum mostra preço ou custo. Termo de aceite com a assinatura.
+- **Aceite na obra**: checklist por item, nome, assinatura com o dedo. Feito sem internet fica no aparelho e é enviado
+  depois (id do aparelho: não duplica). A assinatura (PNG) fica no banco e entra no backup diário.
+- **Nota fiscal**: só o registro do número da NF-e/NFS-e; a lista marca "Sem nota fiscal" em pedido concluído sem nota.
+
+Suposições (confirmar com o Gabriel):
+- Previsão de entrega = prazo do orçamento (14 dias úteis) contado a partir da medição conferida.
+- Prazo de entrega do fornecedor (cadastro) tratado como dias úteis.
+- Só o ADMIN confirma sinal, mexe nas compras, agenda a instalação, cancela e registra nota. O vendedor aprova,
+  confere medidas, abre aditivo, vê a agenda e a OS dele e colhe o aceite.
+- Contas a receber/pagar automáticas ficam para a fase do financeiro (aqui só o sinal e o saldo a receber).
+- Fotos do vão e agenda de medição ainda não existem.

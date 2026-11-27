@@ -5,10 +5,12 @@
  *  - fila: gravações feitas sem internet, enviadas quando a conexão volta
  *  - meta: datas da última sincronização, avisos de conflito etc.
  *  - orcamentos: orçamentos do vendedor no aparelho (os com `pendente` ainda não foram enviados)
+ *  - instalacoes: instalações agendadas do vendedor (pacote para a obra)
+ *  - aceites: aceites assinados na obra ainda não enviados
  */
 const NOME = 'sistema-cortinas';
-const VERSAO = 2;
-export type Store = 'clientes' | 'fila' | 'meta' | 'orcamentos';
+const VERSAO = 3;
+export type Store = 'clientes' | 'fila' | 'meta' | 'orcamentos' | 'instalacoes' | 'aceites';
 
 let aberto: Promise<IDBDatabase> | null = null;
 
@@ -22,6 +24,8 @@ function abrir(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('fila')) db.createObjectStore('fila', { keyPath: 'idOperacao' });
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
       if (!db.objectStoreNames.contains('orcamentos')) db.createObjectStore('orcamentos', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('instalacoes')) db.createObjectStore('instalacoes', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('aceites')) db.createObjectStore('aceites', { keyPath: 'pedidoId' });
     };
     r.onsuccess = () => ok(r.result);
     r.onerror = () => { aberto = null; falha(r.error); };
