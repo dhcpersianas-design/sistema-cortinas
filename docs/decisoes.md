@@ -29,6 +29,7 @@ Matriz de permissões (código: `api/src/auth/permissoes.ts`):
 | Fornecedores, compras, produção, instalação | ✓ | — |
 | Financeiro, relatórios, DRE | ✓ | — |
 | Equipe (criar/desativar usuários) e parâmetros | ✓ | — |
+| Backups do banco (gerar e baixar) | ✓ | — |
 
 Consequências no banco:
 
