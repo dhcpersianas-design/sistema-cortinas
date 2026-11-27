@@ -14,3 +14,4 @@ export * from './precificacao.js';
 export * from './configurador.js';
 export * from './regras.js';
 export * from './cadastro.js';
+export * from './disponibilidade.js';

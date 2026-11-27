@@ -79,6 +79,8 @@ export const produtos = pgTable('produtos', {
   precoVendaUnitario: numeric('preco_venda_unitario', { precision: 12, scale: 4 }).notNull(),
   metadataTecnica: jsonb('metadata_tecnica').$type<Record<string, unknown>>().notNull().default({}),
   ativo: boolean('ativo').default(true),
+  disponibilidade: varchar('disponibilidade', { length: 25 }).notNull().default('DISPONIVEL'),
+  previsaoDisponivel: date('previsao_disponivel', { mode: 'string' }),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).defaultNow(),
   nomeBusca: text('nome_busca').generatedAlwaysAs(sql`f_busca(sku || ' ' || nome || ' ' || COALESCE(cor_colecao, ''))`),
 });

@@ -93,6 +93,8 @@ export type ProdutoCatalogo = {
   id: string; sku: string; nome: string; categoria: string; categoriaId: number; unidade: string;
   /** Tipo de cadastro da categoria (PERSIANA, TECIDO, TRILHO, CONFECCAO...). Cache antigo pode vir sem. */
   perfil?: string;
+  /** Disponibilidade (DISPONIVEL, EM_FALTA_..., FORA_DE_LINHA, SOB_CONSULTA). Cache antigo pode vir sem. */
+  disponibilidade?: string; previsaoDisponivel?: string | null;
   precoVendaUnitario: string; custoUnitario?: string; metadata: Record<string, unknown>;
   barras: { tamanhoM: number; venda: string; custo?: string }[]; tabelaBarrasCompleta: boolean;
 };
@@ -113,6 +115,7 @@ export async function carregarCatalogo(): Promise<{ produtos: ProdutoCatalogo[];
   // Quem não vê custo calcula com custo 0: no aparelho só o preço de venda vale.
   const base: Produto[] = produtos.map((p) => ({
     sku: p.sku, nome: p.nome, unidade: p.unidade as Produto['unidade'], categoria: p.categoria,
+    disponibilidade: p.disponibilidade ? { status: p.disponibilidade, previsao: p.previsaoDisponivel ?? null } : undefined,
     custoUnitario: p.custoUnitario ?? '0', precoVendaUnitario: p.precoVendaUnitario, metadata: p.metadata,
   }));
   const linhas: LinhaPrecoBarra[] = produtos.flatMap((p) => p.barras.map((b) => ({ sku: p.sku, tamanhoM: String(b.tamanhoM), custo: b.custo ?? '0', venda: b.venda })));

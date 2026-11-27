@@ -7,6 +7,7 @@
  *    taxa de pagamento, imposto e comissão -> margem LÍQUIDA e semáforo 45/35.
  *  - descricaoComercial: o texto limpo que vai para o PDF do cliente.
  */
+import { alertasDisponibilidade } from './disponibilidade.js';
 import { Decimal, d, dinheiro, ErroEntrada, ZERO, type Numerico } from './decimal.js';
 import { componente, margemPct } from './comum.js';
 import { calcularCortina, type EntradaCortina } from './cortina.js';
@@ -128,7 +129,8 @@ export function calcularItem(item: EntradaItem, ajustes: Ajuste[], catalogo: Cat
     componentes,
     custoTotal: componentes.reduce((s, c) => s.plus(c.custoTotal), ZERO),
     vendaTotal: componentes.reduce((s, c) => s.plus(c.precoTotal), ZERO),
-    alertas: motor.alertas,
+    // Em falta / fora de linha / sob consulta: avisa o vendedor (nunca vai para o PDF).
+    alertas: [...motor.alertas, ...alertasDisponibilidade(componentes.map((c) => c.sku), catalogo)],
     especificacaoTecnica: motor.especificacaoTecnica,
     larguraProducao, alturaProducao, larguraBruta, alturaBruta,
     motor,

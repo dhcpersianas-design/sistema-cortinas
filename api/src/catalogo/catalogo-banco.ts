@@ -14,6 +14,7 @@ export async function carregarCatalogoDoBanco(db: Banco): Promise<{ catalogo: Ca
   const caminho = new Map((await carregarCategorias(db, null)).map((c) => [c.id, c.caminho]));
   const base: Produto[] = linhasProdutos.map((p) => ({
     categoria: caminho.get(p.categoriaId),
+    disponibilidade: { status: p.disponibilidade, previsao: p.previsaoDisponivel },
     sku: p.sku,
     nome: p.nome,
     unidade: p.unidadeMedida,

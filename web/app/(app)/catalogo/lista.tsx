@@ -8,10 +8,19 @@ import { classeSelect, Mensagens } from '@/components/cadastro/campos';
 import { api } from '@/lib/cliente';
 import { dinheiro } from '@/lib/utils';
 import { semAcento } from '@/lib/texto';
+import { ROTULO_DISPONIBILIDADE, textoDisponibilidade } from '@sistema/motor-calculo/navegador';
+
+const COR_STATUS: Record<string, string> = {
+  EM_FALTA_SEM_PREVISAO: 'border-amber-500/60 text-amber-600 dark:text-amber-400',
+  EM_FALTA_COM_PREVISAO: 'border-amber-500/60 text-amber-600 dark:text-amber-400',
+  FORA_DE_LINHA: 'border-red-500/60 text-red-600 dark:text-red-400',
+  SOB_CONSULTA: 'border-sky-500/60 text-sky-600 dark:text-sky-400',
+};
 
 export type ProdutoLista = {
   id: string; sku: string; nome: string; corColecao: string | null; categoriaId: number; categoria: string; unidade: string;
   categoriaPrincipalId?: number | null; categoriaPrincipal?: string; faltaSubcategoria?: boolean;
+  disponibilidade?: string; previsaoDisponivel?: string | null;
   custoUnitario?: string; precoVendaUnitario: string; ativo: boolean | null; fornecedorNome?: string | null;
   tabelaBarrasCompleta: boolean; barras: { tamanhoM: number; custo?: string; venda: string }[];
 };
@@ -26,6 +35,7 @@ export function ListaCatalogo({ verCusto, editar }: { verCusto: boolean; editar:
   const [q, setQ] = useState('');
   const [categoria, setCategoria] = useState('');
   const [inativos, setInativos] = useState(false);
+  const [status, setStatus] = useState('');
 
   useEffect(() => {
     api<{ produtos: ProdutoLista[] }>(`/api/catalogo/produtos${editar ? '?inativos=1' : ''}`)
@@ -47,8 +57,9 @@ export function ListaCatalogo({ verCusto, editar }: { verCusto: boolean; editar:
     const t = semAcento(q.trim());
     return (produtos ?? []).filter((p) => (inativos || p.ativo !== false)
       && (!categoria || `c${p.categoriaId}` === categoria || `p${p.categoriaPrincipalId}` === categoria)
+      && (!status || (p.disponibilidade ?? 'DISPONIVEL') === status)
       && (!t || semAcento(`${p.sku} ${p.nome} ${p.corColecao ?? ''}`).includes(t)));
-  }, [produtos, q, categoria, inativos]);
+  }, [produtos, q, categoria, inativos, status]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -62,11 +73,15 @@ export function ListaCatalogo({ verCusto, editar }: { verCusto: boolean; editar:
           </div>
         )}
       </div>
-      <div className="grid gap-2 sm:grid-cols-[1fr_14rem_auto]">
+      <div className="grid gap-2 sm:grid-cols-[1fr_14rem_12rem_auto]">
         <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por SKU, nome ou cor" aria-label="Buscar produtos" />
         <select value={categoria} onChange={(e) => setCategoria(e.target.value)} className={classeSelect} aria-label="Categoria">
           <option value="">Todas as categorias</option>
           {categorias.map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
+        </select>
+        <select value={status} onChange={(e) => setStatus(e.target.value)} className={classeSelect} aria-label="Status">
+          <option value="">Todos os status</option>
+          {Object.entries(ROTULO_DISPONIBILIDADE).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
         </select>
         {editar && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={inativos} onChange={(e) => setInativos(e.target.checked)} /> inativos</label>}
       </div>
@@ -92,6 +107,9 @@ export function ListaCatalogo({ verCusto, editar }: { verCusto: boolean; editar:
                   <td className="px-3 py-2 font-mono text-xs">{editar ? <Link className="underline" href={`/catalogo/${p.id}`}>{p.sku}</Link> : p.sku}</td>
                   <td className="px-3 py-2">
                     {p.nome}{p.corColecao ? ` · ${p.corColecao}` : ''}
+                    {p.disponibilidade && p.disponibilidade !== 'DISPONIVEL' && (
+                      <Badge className={`ml-2 ${COR_STATUS[p.disponibilidade] ?? ''}`}>{textoDisponibilidade(p.disponibilidade, p.previsaoDisponivel)}</Badge>
+                    )}
                     {p.barras.length > 0 && (
                       <Badge className={`ml-2 ${p.tabelaBarrasCompleta ? '' : 'border-amber-500/50'}`}>
                         {p.tabelaBarrasCompleta ? 'preço por barra' : `barras ${p.barras.length}/6`}
