@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { sql, type SQL } from 'drizzle-orm';
 import {
-  calcularItem, checarLiberacao, d, descricaoComercial, garantiaDoItem, ErroEntrada, LIMITES_SEMAFORO_PADRAO, ratearDesconto, tetoDesconto, totalizarOrcamento,
+  calcularItem, checarLiberacao, d, descontoValeNaForma, descricaoComercial, garantiaDoItem, ErroEntrada, LIMITES_SEMAFORO_PADRAO, ratearDesconto, tetoDesconto, totalizarOrcamento,
   type Ajuste, type Catalogo, type Decimal, type EntradaItem,
 } from '@sistema/motor-calculo';
 import type { Banco } from '../db/conexao.js';
@@ -10,6 +10,7 @@ import { pode } from '../auth/permissoes.js';
 import { carregarCatalogoDoBanco } from '../catalogo/catalogo-banco.js';
 import { parametro } from '../catalogo/parametros.js';
 import { hashItem, jsonEstavel, type DocumentoEntrada, type ItemDocumento } from './esquemas.js';
+import { regraCartao } from '../financeiro/servico.js';
 
 /**
  * Regras do configurador de orçamento (especificação v1.1: seções 1, 9, 11.1 e 12).
@@ -47,10 +48,9 @@ export async function parametrosMargem(db: Exec, lojaId: string, vendedorId: str
   const [v] = await linhas<{ comissao: string | null; descontoMax: string | null }>(db,
     sql`SELECT comissao_padrao AS comissao, desconto_max_pct AS "descontoMax" FROM usuarios WHERE id = ${vendedorId}`);
   let taxaPct = '0';
-  // Crédito com a taxa repassada ao cliente (REPASSAR_TAXA_CARTAO = 1): a loja recebe o mesmo que no PIX,
-  // então a taxa não reduz a margem do orçamento. Débito: preço cheio, a taxa sai da margem.
-  const cartao = forma != null && ['CREDITO_AVISTA', 'CREDITO_PARCELADO'].includes(forma);
-  const repasse = cartao && d((await p('REPASSAR_TAXA_CARTAO')) ?? 0).gt(0);
+  // Crédito de 4x a 12x leva a taxa embutida no valor (a loja recebe o mesmo que sem juros), então a
+  // taxa não reduz a margem. Débito, crédito à vista e até 3x sem juros: a taxa sai da margem da loja.
+  const repasse = (await regraCartao(db, lojaId)).repassa(forma, parcelas);
   if (forma && !repasse) {
     const [t] = await linhas<{ taxa: string }>(db, sql`
       SELECT (taxa_mdr_pct + taxa_antecip_pct)::text AS taxa FROM taxas_pagamento
@@ -244,15 +244,22 @@ export type DocumentoPublico = ReturnType<typeof documentoPublico>;
  */
 export async function tetoDoOrcamento(db: Exec, doc: NonNullable<Awaited<ReturnType<typeof lerDocumento>>>) {
   const { c, itens } = doc;
-  const p = await parametrosMargem(db, c.lojaId, c.vendedorId, c.formaPagamento, c.parcelas ?? 1);
+  // O desconto só existe no PIX, então o teto é calculado para o PIX (sem taxa de cartão).
+  const p = await parametrosMargem(db, c.lojaId, c.vendedorId, 'PIX', 1);
   const base = itens.map((i) => ({ vendaTotal: i.vendaTotal, custoTotal: i.custoTotal }));
+  // Cartão sem juros (até PARCELAS_SEM_JUROS): valor cheio, a loja paga a taxa da maior parcela sem juros.
+  const regra = await regraCartao(db, c.lojaId);
+  const pCartao = await parametrosMargem(db, c.lojaId, c.vendedorId, regra.semJuros >= 2 ? 'CREDITO_PARCELADO' : 'CREDITO_AVISTA', regra.semJuros);
+  const tCartao = totalizarOrcamento(base, { descontoTipo: 'VALOR', descontoValor: '0', acrescimo: c.acrescimo }, pCartao);
   const saudavel = tetoDesconto(base, c.acrescimo, p, p.limites.verdeMinPct);
   const minimo = tetoDesconto(base, c.acrescimo, p, p.limites.amareloMinPct);
   const subtotal = d(c.subtotal);
   const vendedorPct = p.descontoMaxPct != null ? d(p.descontoMaxPct) : null;
   const vendedorValor = vendedorPct ? subtotal.mul(vendedorPct).div(100).toDecimalPlaces(2, 1) : null;
   const maximo = vendedorValor && vendedorValor.lt(saudavel.valor) ? vendedorValor : saudavel.valor;
-  const atual = d(c.descontoValor);
+  const soPix = descontoValeNaForma(c.formaPagamento);
+  // Desconto que o vendedor informou (vale no PIX, mesmo que a forma escolhida agora seja outra).
+  const atual = c.descontoTipo === 'PERCENTUAL' ? subtotal.mul(d(c.descontoInformado)).div(100).toDecimalPlaces(2) : d(c.descontoInformado);
   const pctDe = (v: Decimal) => (subtotal.gt(0) ? v.div(subtotal).mul(100).toDecimalPlaces(2, 1).toFixed(2) : '0.00');
   return {
     maximo: { valor: maximo.toFixed(2), pct: pctDe(maximo), pelo: vendedorValor && vendedorValor.lt(saudavel.valor) ? 'VENDEDOR' : 'MARGEM' },
@@ -264,6 +271,12 @@ export async function tetoDoOrcamento(db: Exec, doc: NonNullable<Awaited<ReturnT
     descontoAtual: atual.toFixed(2),
     aindaCabe: (maximo.gt(atual) ? maximo.minus(atual) : d(0)).toFixed(2),
     passou: atual.gt(maximo),
+    /** A forma escolhida não é PIX: o desconto informado não vale (cliente paga o valor cheio). */
+    descontoIgnorado: !soPix && atual.gt(0),
+    cartaoSemJuros: {
+      parcelas: regra.semJuros, valor: tCartao.total.toFixed(2),
+      margemPct: tCartao.margemLiquidaPct.toFixed(2), semaforo: tCartao.semaforo,
+    },
   };
 }
 export type TetoDoOrcamento = Awaited<ReturnType<typeof tetoDoOrcamento>>;
@@ -424,7 +437,9 @@ export async function recalcularTotais(tx: Exec, orcamentoId: string) {
   const c = (await lerCabecalho(tx, orcamentoId))!;
   const itens = await lerItens(tx, orcamentoId);
   const p = await parametrosMargem(tx, c.lojaId, c.vendedorId, c.formaPagamento, c.parcelas ?? 1);
-  const t = totalizarOrcamento(itens, { descontoTipo: c.descontoTipo, descontoValor: c.descontoInformado, acrescimo: c.acrescimo }, p);
+  // Desconto só no PIX (Gabriel, 27/11/2026): nas outras formas o total é o valor cheio.
+  const desconto = descontoValeNaForma(c.formaPagamento) ? c.descontoInformado : '0';
+  const t = totalizarOrcamento(itens, { descontoTipo: c.descontoTipo, descontoValor: desconto, acrescimo: c.acrescimo }, p);
   const rateio = ratearDesconto(itens.map((i) => ({ id: i.id, vendaTotal: i.vendaTotal, componentes: i.componentes })), t.descontoValor);
   for (const r of rateio) {
     await tx.execute(sql`UPDATE orcamento_itens_compostos SET desconto_rateado = ${r.descontoRateado.toFixed(2)},

@@ -8,7 +8,7 @@
  * - Conflito (editado em dois lugares) não sobrescreve: o servidor grava como nova versão.
  */
 import {
-  aplicarPrecosBarra, calcularItem, criarCatalogo, descricaoComercial, totalizarOrcamento,
+  aplicarPrecosBarra, calcularItem, criarCatalogo, descontoValeNaForma, descricaoComercial, totalizarOrcamento,
   type Ajuste, type Catalogo, type EntradaItem, type LinhaPrecoBarra, type Produto,
 } from '@sistema/motor-calculo/navegador';
 import { apagar, gravar, ler, todos } from './offline-db';
@@ -45,6 +45,10 @@ export type TetoDesconto = {
   saudavel: { valor: string; pct: string; margemPct: string };
   minimo: { valor: string; pct: string; margemPct: string };
   vendedorPct: string | null; senhaAcima: { valor: string; pct: string }; descontoAtual: string; aindaCabe: string; passou: boolean;
+  /** Forma escolhida não é PIX: o desconto digitado não entra no valor. */
+  descontoIgnorado?: boolean;
+  /** Cartão/débito sem juros: valor cheio, a loja paga a taxa (margem só com ver custos). */
+  cartaoSemJuros?: { parcelas: number; valor: string; margemPct?: string; semaforo: string };
 };
 export type Orcamento = {
   id: string; grupoId?: string; codigo?: string; versao?: number; origemId?: string | null; status: string; titulo: string | null;
@@ -135,7 +139,9 @@ export function calcularLocal(o: Orcamento, catalogo: Catalogo, verCusto: boolea
     };
   });
   const t = totalizarOrcamento(itens.map((i) => ({ vendaTotal: i.vendaTotal!, custoTotal: i.custoTotal ?? '0' })), {
-    descontoTipo: o.condicoes.descontoTipo, descontoValor: o.condicoes.descontoValor || '0', acrescimo: o.condicoes.acrescimo || '0',
+    descontoTipo: o.condicoes.descontoTipo, acrescimo: o.condicoes.acrescimo || '0',
+    // Desconto só vale no PIX (mesma regra do servidor).
+    descontoValor: descontoValeNaForma(o.condicoes.formaPagamento) ? o.condicoes.descontoValor || '0' : '0',
   });
   return {
     ...o, itens, provisorio: true,

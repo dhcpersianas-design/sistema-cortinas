@@ -14,6 +14,7 @@ import {
   parametrosMargem, salvarDocumento, tetoDoOrcamento, TRANSICOES,
 } from '../orcamentos/servico.js';
 import { dinheiroBR, gerarPdf, montarProposta } from '../orcamentos/proposta.js';
+import { regraCartao } from '../financeiro/servico.js';
 
 /**
  * Orçamentos (configurador por ambiente) e proposta em PDF.
@@ -44,7 +45,10 @@ export async function rotasOrcamentos(app: FastifyInstance) {
     const doc = await lerDocumento(app.db, id);
     if (!doc || !noEscopo(req.usuario!, doc.c)) return null;
     // Teto de desconto: só para a tela de quem está negociando (nunca no PDF/WhatsApp).
-    return { ...documentoPublico(req.usuario!, doc), teto: await tetoDoOrcamento(app.db, doc) };
+    const teto = await tetoDoOrcamento(app.db, doc);
+    // Margem em % do cartão sem juros só para quem pode ver custos.
+    if (!pode(req.usuario!, 'custos.ver')) delete (teto.cartaoSemJuros as { margemPct?: string }).margemPct;
+    return { ...documentoPublico(req.usuario!, doc), teto };
   }
 
   // ---------------------------------------------------------------- lista
@@ -87,11 +91,11 @@ export async function rotasOrcamentos(app: FastifyInstance) {
     const orcamentos = [];
     for (const r of rows) { const doc = await documento(req, r.id); if (doc) orcamentos.push(doc); }
     const p = await parametrosMargem(app.db, u.lojaId, u.id, null, 1);
-    // Mesma regra de parametrosMargem: com a taxa do cartão repassada ao cliente, ela não pesa na margem.
-    const repasse = Number((await parametro(app.db, u.lojaId, 'REPASSAR_TAXA_CARTAO')) ?? 0) > 0;
+    // Mesma regra de parametrosMargem: de 4x a 12x a taxa vai embutida para o cliente e não pesa na margem.
+    const regra = await regraCartao(app.db, u.lojaId);
     const { rows: taxas } = await app.db.execute(sql`
       SELECT forma_pagamento AS forma, parcelas,
-             (CASE WHEN ${repasse} AND forma_pagamento IN ('CREDITO_AVISTA', 'CREDITO_PARCELADO') THEN 0
+             (CASE WHEN ${regra.ligado} AND forma_pagamento = 'CREDITO_PARCELADO' AND parcelas > ${regra.semJuros} THEN 0
                    ELSE taxa_mdr_pct + taxa_antecip_pct END)::text AS "taxaPct"
         FROM taxas_pagamento WHERE bandeira IN ('TODAS', 'VISA_MASTER')`);
     return {

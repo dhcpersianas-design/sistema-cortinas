@@ -268,6 +268,14 @@ export function totalizarOrcamento(
   };
 }
 
+/**
+ * O desconto do orçamento vale só no PIX à vista (Gabriel, 27/11/2026). Forma "a combinar" (vazia)
+ * mostra o preço do PIX. Cartão, débito, boleto e dinheiro pagam o valor cheio.
+ */
+export function descontoValeNaForma(forma: string | null | undefined): boolean {
+  return !forma || forma === 'PIX';
+}
+
 export interface TetoDesconto {
   /** Maior desconto (R$, sobre o subtotal) que ainda deixa a margem líquida >= alvoPct. */
   valor: Decimal;

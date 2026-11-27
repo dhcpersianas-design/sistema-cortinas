@@ -78,8 +78,21 @@ export type Taxa = { pct: Decimal; antecipPct: Decimal; diasRepasse: number; cad
 /** Taxa da forma de pagamento (MDR + antecipação) e prazo de repasse. Sem cadastro = 0%. */
 // Gabriel (27/11/2026): vale só a tabela Visa/Mastercard para qualquer bandeira.
 export const BANDEIRAS = ['VISA_MASTER'] as const;
-/** Formas em que a taxa vai embutida no valor (débito não: cobra o preço cheio e a loja paga a taxa). */
-export const FORMAS_REPASSE = ['CREDITO_AVISTA', 'CREDITO_PARCELADO'];
+/**
+ * Regra do cartão (Gabriel, 27/11/2026): débito, crédito à vista e parcelado até PARCELAS_SEM_JUROS (3x)
+ * ficam "sem juros": o cliente paga o valor cheio e a loja paga a taxa. Acima disso (4x a 12x) a taxa
+ * vai embutida no valor cheio. O desconto do orçamento vale só no PIX.
+ */
+export async function regraCartao(db: Exec, lojaId: string) {
+  const ligado = d((await parametro(db as Banco, lojaId, 'REPASSAR_TAXA_CARTAO')) ?? 0).gt(0);
+  const semJuros = Math.round(Number((await parametro(db as Banco, lojaId, 'PARCELAS_SEM_JUROS')) ?? 3));
+  return {
+    ligado, semJuros,
+    /** true quando esta forma/parcelas leva a taxa embutida no valor. */
+    repassa: (forma: string | null | undefined, parcelas: number | null | undefined) =>
+      ligado && forma === 'CREDITO_PARCELADO' && Math.max(2, parcelas ?? 2) > semJuros,
+  };
+}
 export type Bandeira = (typeof BANDEIRAS)[number];
 
 export async function taxaDe(db: Exec, forma: string | null, parcelas = 1, bandeira: string | null = 'VISA_MASTER'): Promise<Taxa> {
@@ -112,7 +125,7 @@ export function valorComRepasse(liquido: Decimal, taxaPct: Decimal): Decimal {
 export async function simularCartao(db: Exec, lojaId: string, valor: Decimal, forma: string, parcelas: number, bandeira: string | null) {
   const n = forma === 'CREDITO_PARCELADO' ? Math.max(2, parcelas) : 1;
   const t = await taxaDe(db, forma, n, bandeira);
-  const repasse = FORMAS_REPASSE.includes(forma) && await repasseLigado(db, lojaId);
+  const repasse = (await regraCartao(db, lojaId)).repassa(forma, n);
   const cobrado = repasse ? valorComRepasse(valor, t.pct) : dinheiro(valor);
   return {
     repasse, taxaPct: t.pct.toFixed(2), cobrado: cobrado.toFixed(2), parcelas: n,
@@ -202,7 +215,7 @@ export async function criarPlanoRecebimento(db: Exec, pedidoId: string, usuarioI
   const cartao = p.forma != null && ['CREDITO_AVISTA', 'CREDITO_PARCELADO'].includes(p.forma);
   const pct = cartao ? d(100) : d((await parametro(db as Banco, p.lojaId, 'SINAL_PADRAO_PCT')) ?? 50);
   // Taxa prevista: zero quando a taxa do cartão é repassada ao cliente (a loja recebe o valor cheio).
-  const repassa = p.forma != null && FORMAS_REPASSE.includes(p.forma) && await repasseLigado(db, p.lojaId);
+  const repassa = (await regraCartao(db, p.lojaId)).repassa(p.forma, p.parcelas);
   const taxa = repassa ? await taxaDe(db, null) : await taxaDe(db, p.forma, p.parcelas);
   const sinal = dinheiro(total.mul(pct).div(100));
   const saldo = total.minus(sinal);
@@ -283,7 +296,7 @@ export async function receberDoCliente(db: Exec, pedidoId: string, e: EntradaRec
     const t = await taxaDe(db, e.forma, n, bandeira);
     // Taxa repassada ao cliente: passa na maquininha o valor com a taxa embutida (cobrado); a dívida
     // do cliente baixa pelo valor sem taxa. A diferença (acrescimo_cliente) é receita do pedido.
-    cobrado = FORMAS_REPASSE.includes(e.forma) && (await repasseLigado(db, p.lojaId)) ? valorComRepasse(valor, t.pct) : valor;
+    cobrado = (await regraCartao(db, p.lojaId)).repassa(e.forma, n) ? valorComRepasse(valor, t.pct) : valor;
     const taxaTotal = valorTaxa(cobrado, t);
     // Com antecipação a operadora deposita tudo de uma vez; sem, uma parcela a cada 30 dias.
     const repasses = t.antecipPct.gt(0) ? 1 : n;

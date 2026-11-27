@@ -1,5 +1,5 @@
 import { sql, type SQL } from 'drizzle-orm';
-import { d, dinheiro } from '@sistema/motor-calculo';
+import { d, descontoValeNaForma, dinheiro } from '@sistema/motor-calculo';
 import type { Banco } from '../db/conexao.js';
 import type { UsuarioSessao } from '../auth/sessao.js';
 import { pode } from '../auth/permissoes.js';
@@ -192,6 +192,8 @@ export async function aprovarOrcamento(db: Banco, u: UsuarioSessao, orcamentoId:
     const conferidas = e.medidasConferidas ?? c.medidasConferidas;
     const status = conferidas ? 'AGUARDANDO_SINAL' : 'CONFERENCIA_MEDIDAS';
     const forma = e.formaPagamento === undefined ? c.formaPagamento : e.formaPagamento;
+    // O desconto do orçamento só vale no PIX: aprovado em cartão/débito/dinheiro, o pedido fica pelo valor cheio.
+    const valor = descontoValeNaForma(forma) ? c.total : d(c.subtotal).plus(c.acrescimo).toFixed(2);
     const [n] = await linhas<{ n: string }>(tx, sql`SELECT nextval('pedido_numero_seq')::text AS n`);
     const numero = `PED-${hojeLoja().slice(0, 4)}-${n!.n.padStart(4, '0')}`;
     const previsao = conferidas ? await previsaoEntrega(tx, { lojaId: c.lojaId, prazoEntregaDias: c.prazoEntregaDias }) : null;
@@ -201,7 +203,7 @@ export async function aprovarOrcamento(db: Banco, u: UsuarioSessao, orcamentoId:
         status_operacional, data_previsao_entrega, forma_pagamento_final, valor_total_final, valor_original, titulo, criado_por_id,
         medidas_conferidas_em, medidas_conferidas_por_id)
       VALUES (${c.lojaId}, ${numero}, ${c.id}, ${c.grupoId}, ${c.id}, ${c.clienteId}, ${c.vendedorId},
-        ${status}::status_pedido_enum, ${previsao}::date, ${forma ?? null}::forma_pagamento_enum, ${c.total}, ${c.total}, ${c.titulo}, ${u.id},
+        ${status}::status_pedido_enum, ${previsao}::date, ${forma ?? null}::forma_pagamento_enum, ${valor}, ${valor}, ${c.titulo}, ${u.id},
         ${conferidas ? sql`NOW()` : null}, ${conferidas ? u.id : null})
       RETURNING id`);
     await tx.execute(sql`UPDATE orcamentos SET status = 'APROVADO', data_aprovacao = NOW(), congelado_em = COALESCE(congelado_em, NOW()),
@@ -210,7 +212,7 @@ export async function aprovarOrcamento(db: Banco, u: UsuarioSessao, orcamentoId:
     await auditar(tx, c.id, u.id, [{ acao: 'STATUS', descricao: `Aprovado pelo cliente: virou o pedido ${numero}.`, detalhes: { de: c.status, para: 'APROVADO', pedidoId: p!.id } }]);
     await registrarEvento(tx, p!.id, u.id, 'CRIADO',
       `Pedido criado a partir do orçamento ${c.codigo} v${c.versao} (${STATUS_PEDIDO[status]}).${e.observacao ? ` ${e.observacao}` : ''}`,
-      { orcamentoId: c.id, valor: c.total });
+      { orcamentoId: c.id, valor });
     // Financeiro: cobranças do cliente (sinal + saldo) e comissão do vendedor.
     await criarPlanoRecebimento(tx, p!.id, u.id);
     await sincronizarComissao(tx, p!.id, u.id);
