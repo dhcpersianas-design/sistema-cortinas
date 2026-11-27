@@ -7,6 +7,6 @@ construído a partir da *Especificação Técnica ERP Cortinas e Persianas* v1.0
 
 | Pasta | Conteúdo | Estado |
 |---|---|---|
-| [`motor-calculo/`](motor-calculo/README.md) | Motor de cálculo de cortinas e persianas (decimal exato, explosão BOM, alertas técnicos) | Pronto, 52 testes |
+| [`motor-calculo/`](motor-calculo/README.md) | Motor de cálculo de cortinas e persianas (decimal exato, explosão BOM, alertas técnicos) | Pronto, 58 testes |
 
 Próximos módulos (banco, API, telas) entram como novas pastas.

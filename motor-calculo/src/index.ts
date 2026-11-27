@@ -29,3 +29,5 @@ export {
   type Acionamento,
 } from './persiana.js';
 export { resumirOrcamento, paraJSON, type ItemOrcamento, type ResumoOrcamento } from './orcamento.js';
+export { lerPrecosBarraCSV, aplicarPrecosBarra, normalizarNumero, type LinhaPrecoBarra, type ResultadoPrecosBarra } from './precos-barra.js';
+export { carregarCatalogo, CAMINHO_PRECOS_BARRA } from './carregar.js';

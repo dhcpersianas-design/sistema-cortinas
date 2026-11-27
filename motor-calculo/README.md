@@ -16,7 +16,7 @@ técnicos e dados para a ficha de produção. Implementa as seções 2 a 6 da
 
 ```bash
 npm install
-npm test        # 52 testes (vitest)
+npm test        # 58 testes (vitest)
 npm run build   # gera dist/
 ```
 
@@ -41,6 +41,19 @@ const persiana = calcularPersiana({
 paraJSON(cortina); // strings decimais prontas para API/banco
 ```
 
+## Preços do trilho por tamanho de barra
+
+A planilha [`dados/precos-barra-trilho.csv`](dados/precos-barra-trilho.csv) já vem
+com cada trilho/varão nos tamanhos de 1 a 6 m. Basta preencher `custo` e `venda`
+(abre no Excel/Google Sheets; separador `;`, aceita `55,00`, `R$ 1.150,00`).
+
+- Linha vazia é ignorada.
+- Um trilho só passa a ser cobrado por barra quando **os 6 tamanhos** estiverem
+  preenchidos; até lá continua pelo preço do ML do catálogo.
+- `carregarCatalogo()` lê a planilha e devolve `avisos` (linha incompleta,
+  número inválido, SKU inexistente, tamanhos faltando).
+- Trilho novo: acrescente 6 linhas com o SKU dele.
+
 ## Estrutura
 
 | Arquivo | Conteúdo |
@@ -48,6 +61,7 @@ paraJSON(cortina); // strings decimais prontas para API/banco
 | `src/decimal.ts` | Instância Decimal, `ceilStep`, arredondamento de dinheiro, validação |
 | `src/cortina.ts` | Seção 4.1: tecido/forro, sentido de corte (sem rapport), MDO, trilho/varão, deslizantes, fita, terminais, garras/suportes, instalação, alertas |
 | `src/persiana.ts` | Seção 4.2: vão bruto → produção, área com mínimos, bando, guia, motor/controle/hub, redutor, divisão em peças, alertas |
+| `src/precos-barra.ts`, `src/carregar.ts` | Leitura da planilha de preços por barra e montagem do catálogo |
 | `src/orcamento.ts` | Soma de itens e margem consolidada; `paraJSON` |
 | `src/catalogo-seed.ts` | 27 SKUs fictícios da seção 7/8 |
 | `test/` | Casos 1 e 2 da seção 6 + bordas |
