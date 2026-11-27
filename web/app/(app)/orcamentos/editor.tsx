@@ -592,7 +592,7 @@ function TetoNegociacao({ teto, desatualizado }: { teto: NonNullable<Orcamento['
         )}
         {teto.cartaoSemJuros && (
           <p className="text-xs">
-            Cartão (débito ou crédito até {teto.cartaoSemJuros.parcelas}x sem juros): {moeda(teto.cartaoSemJuros.valor)}, sem desconto. A loja paga a taxa
+            Cartão (crédito até {teto.cartaoSemJuros.parcelas}x sem juros; débito só à vista): {moeda(teto.cartaoSemJuros.valor)}, sem desconto. A loja paga a taxa
             {teto.cartaoSemJuros.margemPct != null
               ? `: margem ${pct(teto.cartaoSemJuros.margemPct)}.`
               : `: margem ${teto.cartaoSemJuros.semaforo === 'VERDE' ? 'verde' : teto.cartaoSemJuros.semaforo === 'AMARELO' ? 'amarela' : 'vermelha'}.`}

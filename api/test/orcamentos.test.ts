@@ -352,6 +352,15 @@ describe('proposta em PDF', () => {
     await req(ana, 'PUT', `/api/orcamentos/${id}`, documento(clienteAna, { condicoes: { formaPagamento: 'CREDITO_PARCELADO', parcelas: 3 } }));
   });
 
+  it('proposta sem forma escolhida: débito só à vista; as parcelas são do crédito', async () => {
+    const id2 = randomUUID();
+    await req(ana, 'PUT', `/api/orcamentos/${id2}`, documento(clienteAna, {}));
+    const p = (await montarProposta(app.db, id2, false))!;
+    expect(p.condicoesPagamento).toContain('Cartão de débito à vista: R$ ');
+    expect(p.condicoesPagamento).toContain('Cartão de crédito em até 3x sem juros: R$ ');
+    expect(p.condicoesPagamento).not.toContain('débito ou crédito');
+  });
+
   it('dados da proposta: agrupada por ambiente, sem custo, componentes só se pedir', async () => {
     const p = (await montarProposta(app.db, id, false))!;
     expect(p.ambientes.map((a) => a.nome)).toEqual(['Sala', 'Quarto']);

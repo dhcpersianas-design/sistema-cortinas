@@ -42,7 +42,7 @@ export const PARAMETROS_EDITAVEIS: Record<string, { rotulo: string; dica: string
   SEMAFORO_AMARELO_MIN_PCT: { rotulo: 'Margem amarela a partir de (%)', dica: 'Padrão 35%. Abaixo disso pede a senha do administrador.', min: 0, max: 100 },
   MARKUP_PADRAO_PCT: { rotulo: 'Markup padrão do catálogo (%)', dica: '100% = venda é o dobro do custo.', min: 0, max: 1000 },
   REPASSAR_TAXA_CARTAO: { rotulo: 'Embutir a taxa no parcelado acima do "sem juros" (1 = sim, 0 = não)', dica: 'Com 1, de 4x a 12x o cliente paga o valor cheio com a taxa embutida.', min: 0, max: 1 },
-  PARCELAS_SEM_JUROS: { rotulo: 'Cartão sem juros até quantas parcelas', dica: 'Padrão 3x. Até aqui (e no débito) o cliente paga o valor cheio e a loja paga a taxa. O desconto vale só no PIX.', min: 1, max: 12 },
+  PARCELAS_SEM_JUROS: { rotulo: 'Cartão sem juros até quantas parcelas', dica: 'Padrão 3x. Até aqui no crédito (e no débito, que é só à vista) o cliente paga o valor cheio e a loja paga a taxa. O desconto vale só no PIX.', min: 1, max: 12 },
   POS_VENDA_DIAS: { rotulo: 'Pós-venda: ligar quantos dias depois da instalação', dica: 'Padrão 7 dias.', min: 1, max: 90 },
 };
 

@@ -135,7 +135,7 @@ export async function montarProposta(db: Banco, id: string, detalhar: boolean): 
     grupos.set(i.ambiente, g);
   }
   const forma = c.formaPagamento ? FORMAS[c.formaPagamento] ?? c.formaPagamento : null;
-  // Formas de pagamento (Gabriel, 27/11/2026): desconto só no PIX à vista; débito e crédito até 3x sem
+  // Formas de pagamento (Gabriel, 27/11/2026): desconto só no PIX à vista; débito (à vista) e crédito até 3x sem
   // juros pelo valor cheio; de 4x a 12x a taxa (tabela Visa/Mastercard) vai embutida no valor cheio.
   // A proposta mostra só o valor final das parcelas, sem falar em taxa.
   const regra = await regraCartao(db, c.lojaId);
@@ -160,9 +160,11 @@ export async function montarProposta(db: Banco, id: string, detalhar: boolean): 
     } else {
       linhasPg.push(`À vista no PIX: ${dinheiroBR(pix.toFixed(2))}`);
       const sj = regra.semJuros;
+      // Débito não parcela: linha própria, à vista. As parcelas valem só para o crédito.
+      linhasPg.push(`Cartão de débito à vista: ${dinheiroBR(cheio.toFixed(2))}`);
       linhasPg.push(sj >= 2
-        ? `Cartão de débito ou crédito em até ${sj}x sem juros: ${dinheiroBR(cheio.toFixed(2))} (${sj}x de ${dinheiroBR(cheio.div(sj).toDecimalPlaces(2, 0).toFixed(2))})`
-        : `Cartão de débito ou crédito à vista: ${dinheiroBR(cheio.toFixed(2))}`);
+        ? `Cartão de crédito em até ${sj}x sem juros: ${dinheiroBR(cheio.toFixed(2))} (${sj}x de ${dinheiroBR(cheio.div(sj).toDecimalPlaces(2, 0).toFixed(2))})`
+        : `Cartão de crédito à vista: ${dinheiroBR(cheio.toFixed(2))}`);
       linhasPg.push(`Ou no cartão de crédito em até ${await parcelaTxt(12)}`);
     }
   }
