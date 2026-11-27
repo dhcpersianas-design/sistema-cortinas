@@ -328,7 +328,7 @@ describe('proposta em PDF', () => {
     expect(p.ambientes[0]!.itens[0]).toMatchObject({ valor: 'R$ 2.745,40', medidas: '3,00 m x 2,60 m' });
     expect(p.ambientes[0]!.itens[0]!.componentes).toBeUndefined();
     expect(p.total).toBe('R$ 5.062,00');
-    expect(p.condicoesPagamento).toBe('Cartão de crédito parcelado em 3x de R$ 1.687,33');
+    expect(p.condicoesPagamento).toBe('Cartão de crédito parcelado em 3x de R$ 1.797,33');
     expect(p.avisoConferencia).toBe(true);
     expect(p.rascunho).toBe(true);
     expect(p.garantia).toBe('Contra defeitos de fabricação e instalação, no prazo indicado em cada item.');

@@ -9,6 +9,8 @@ import { classeSelect, classeTextarea, Mensagens } from '@/components/cadastro/c
 import { api } from '@/lib/cliente';
 import { FORMAS, metros, moeda } from '../orcamentos/formato';
 import { CartaoOrdem, type Ordem } from './ordens';
+import { FinanceiroPedido, type FinanceiroDoPedido } from './financeiro-pedido';
+import { CamposCartao, FORMAS_CARTAO_WEB, FORMAS_RECEB } from '../financeiro/comum';
 import { corStatus, dataBR, dataHoraBR, ETAPAS, hojeISO, isoParaLocal, localParaIso, STATUS_PEDIDO } from './formato';
 
 type Resumo = {
@@ -37,6 +39,7 @@ type Pedido = {
   aceite: { nomeRecebedor: string; assinadoEm: string; ressalvas: boolean; observacoes: string | null; offline: boolean } | null;
   eventos: { id: string; acao: string; descricao: string; offline: boolean; criadoEm: string; usuario: string | null }[];
   acoes: string[];
+  financeiro?: FinanceiroDoPedido | null;
 };
 
 function irPara(id: string | null) {
@@ -308,9 +311,13 @@ function DetalhePedido({ id, admin, onVoltar }: { id: string; admin: boolean; on
           {p.custoPrevisto && <Linha r="Custo previsto" v={moeda(p.custoPrevisto)} />}
           {p.custoReal != null && p.custoPrevisto && Number(p.custoReal) > 0 && <Linha r="Custo real (recebido até agora)" v={moeda(p.custoReal)} />}
           {p.previsaoEntrega && <Linha r="Entrega prevista" v={`${dataBR(p.previsaoEntrega)} (dias úteis)`} />}
-          <p className="text-xs text-muted-foreground sm:col-span-2">Contas a receber e a pagar completas entram na fase do financeiro.</p>
         </CardContent>
       </Card>
+
+      {p.financeiro && (
+        <FinanceiroPedido pedidoId={id} fin={p.financeiro} saldo={p.saldo} forma={p.formaPagamento} cancelado={p.status === 'CANCELADO'}
+          onMudou={(m) => { setOk(m); setErro(null); carregar(); }} onErro={(m) => { setErro(m); setOk(null); }} />
+      )}
 
       {/* Documentos */}
       <Card>
@@ -406,12 +413,17 @@ function Linha({ r, v, forte }: { r: string; v: string; forte?: boolean }) {
 
 function FormSinal({ p, ocupado, onSinal }: { p: Pedido; ocupado: boolean; onSinal: (c: object) => void }) {
   const [semSinal, setSemSinal] = useState(false);
-  const metade = (Number(p.valorTotal) / 2).toFixed(2).replace('.', ',');
+  const [forma, setForma] = useState(p.formaPagamento && p.formaPagamento !== 'MISTO' ? p.formaPagamento : 'PIX');
+  const [valor, setValor] = useState((Number(p.valorTotal) / 2).toFixed(2).replace('.', ','));
+  const [parcelas, setParcelas] = useState(3);
+  const [bandeira, setBandeira] = useState('VISA_MASTER');
+  const cartao = FORMAS_CARTAO_WEB.includes(forma);
   return (
     <form className="space-y-2" onSubmit={(e) => {
       e.preventDefault();
       const f = new FormData(e.currentTarget);
-      onSinal(semSinal ? { semSinal: true, motivo: f.get('motivo') || null } : { valor: f.get('valor'), forma: f.get('forma'), recebidoEm: f.get('data') });
+      onSinal(semSinal ? { semSinal: true, motivo: f.get('motivo') || null }
+        : { valor, forma, recebidoEm: f.get('data'), ...(forma === 'CREDITO_PARCELADO' ? { parcelas } : {}), ...(cartao ? { bandeira } : {}) });
     }}>
       <p>Confirme o sinal para liberar as compras. As ordens por fornecedor são geradas na hora.</p>
       <label className="flex items-center gap-2"><input type="checkbox" checked={semSinal} onChange={(e) => setSemSinal(e.target.checked)} /> Liberar sem sinal (decisão do administrador)</label>
@@ -419,12 +431,13 @@ function FormSinal({ p, ocupado, onSinal }: { p: Pedido; ocupado: boolean; onSin
         <Input name="motivo" className="w-72" placeholder="Motivo (opcional)" />
       ) : (
         <div className="grid gap-2 sm:grid-cols-3">
-          <label className="flex flex-col gap-1">Valor do sinal<Input name="valor" inputMode="decimal" required defaultValue={metade} /></label>
+          <label className="flex flex-col gap-1">Valor do sinal<Input inputMode="decimal" required value={valor} onChange={(e) => setValor(e.target.value)} /></label>
           <label className="flex flex-col gap-1">Forma
-            <select name="forma" className={classeSelect} defaultValue={p.formaPagamento ?? 'PIX'}>
-              {FORMAS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
+            <select name="forma" className={classeSelect} value={forma} onChange={(e) => setForma(e.target.value)}>
+              {FORMAS_RECEB.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
             </select>
           </label>
+          <CamposCartao forma={forma} valor={valor} parcelas={parcelas} setParcelas={setParcelas} bandeira={bandeira} setBandeira={setBandeira} />
           <label className="flex flex-col gap-1">Recebido em<Input type="date" name="data" required defaultValue={hojeISO()} /></label>
         </div>
       )}

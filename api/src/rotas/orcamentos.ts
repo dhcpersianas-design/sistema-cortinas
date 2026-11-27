@@ -86,8 +86,12 @@ export async function rotasOrcamentos(app: FastifyInstance) {
     const orcamentos = [];
     for (const r of rows) { const doc = await documento(req, r.id); if (doc) orcamentos.push(doc); }
     const p = await parametrosMargem(app.db, u.lojaId, u.id, null, 1);
+    // Mesma regra de parametrosMargem: com a taxa do cartão repassada ao cliente, ela não pesa na margem.
+    const repasse = Number((await parametro(app.db, u.lojaId, 'REPASSAR_TAXA_CARTAO')) ?? 0) > 0;
     const { rows: taxas } = await app.db.execute(sql`
-      SELECT forma_pagamento AS forma, parcelas, (taxa_mdr_pct + taxa_antecip_pct)::text AS "taxaPct" FROM taxas_pagamento`);
+      SELECT forma_pagamento AS forma, parcelas,
+             (CASE WHEN ${repasse} AND bandeira <> 'TODAS' THEN 0 ELSE taxa_mdr_pct + taxa_antecip_pct END)::text AS "taxaPct"
+        FROM taxas_pagamento WHERE bandeira IN ('TODAS', 'VISA_MASTER')`);
     return {
       geradoEm: new Date().toISOString(),
       orcamentos,

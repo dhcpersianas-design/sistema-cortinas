@@ -18,7 +18,7 @@ describe('migrações e seed da especificação', () => {
 
   it('carrega categorias, plano de contas, loja única e parâmetros', async () => {
     expect(await contar('SELECT COUNT(*) n FROM categorias_produto')).toBe(9);
-    expect(await contar('SELECT COUNT(*) n FROM plano_contas')).toBe(16);
+    expect(await contar('SELECT COUNT(*) n FROM plano_contas')).toBe(20); // 16 da especificação + 4 do financeiro
     expect(await contar('SELECT COUNT(*) n FROM lojas')).toBe(1);
     const { rows } = await pool.query('SELECT chave, valor FROM parametros_sistema ORDER BY chave');
     expect(Object.fromEntries(rows.map((r) => [r.chave, r.valor]))).toEqual({
@@ -27,9 +27,12 @@ describe('migrações e seed da especificação', () => {
       GARANTIA_MESES: '12.0000',
       LIMITE_FATURAMENTO_ANUAL_MEI: '110000.0000',
       MARKUP_PADRAO_PCT: '100.0000',
+      POS_VENDA_DIAS: '7.0000',
       PRAZO_ENTREGA_DIAS_UTEIS: '14.0000',
       SEMAFORO_AMARELO_MIN_PCT: '35.0000',
       SEMAFORO_VERDE_MIN_PCT: '45.0000',
+      REPASSAR_TAXA_CARTAO: '1.0000',
+      SINAL_PADRAO_PCT: '50.0000',
       VALIDADE_ORCAMENTO_DIAS: '15.0000',
     });
   });

@@ -19,6 +19,13 @@ export default async function LayoutApp({ children }: { children: React.ReactNod
               <Link href="/compras" className="rounded-md px-2 py-1 hover:bg-muted">Compras</Link>
             )}
             <Link href="/instalacoes" className="rounded-md px-2 py-1 hover:bg-muted">Instalações</Link>
+            <Link href="/pos-venda" className="rounded-md px-2 py-1 hover:bg-muted">Pós-venda</Link>
+            {u.permissoes.includes('financeiro.gerenciar') && (
+              <Link href="/financeiro" className="rounded-md px-2 py-1 hover:bg-muted">Financeiro</Link>
+            )}
+            {u.permissoes.includes('relatorios.ver') && (
+              <Link href="/relatorios" className="rounded-md px-2 py-1 hover:bg-muted">Relatórios</Link>
+            )}
             <Link href="/clientes" className="rounded-md px-2 py-1 hover:bg-muted">Clientes</Link>
             <Link href="/catalogo" className="rounded-md px-2 py-1 hover:bg-muted">Catálogo</Link>
             {u.permissoes.includes('fornecedores.ver') && (
