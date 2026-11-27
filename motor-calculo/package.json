@@ -1,0 +1,25 @@
+{
+  "name": "@sistema/motor-calculo",
+  "version": "0.1.0",
+  "description": "Motor de cálculo de cortinas e persianas sob medida (decimal exato, explosão BOM).",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "decimal.js": "^10.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.7",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  }
+}
