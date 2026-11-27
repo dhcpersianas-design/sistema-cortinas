@@ -9,6 +9,8 @@ import { exigir } from '../auth/plugin.js';
 import { pode } from '../auth/permissoes.js';
 import { parametro } from '../catalogo/parametros.js';
 import { mensagemErro, termoLike, textoOpcional } from '../cadastros/campos.js';
+import { aplicar, desfazer, lerArquivo, listarImportacoes, planilhaPrecos, analisar } from '../catalogo/importacao.js';
+import { ErroPlanilha } from '../planilhas/xlsx.js';
 
 /**
  * Catálogo de componentes (especificação v1.1, seções 7 e 13).
@@ -285,5 +287,60 @@ export async function rotasCatalogo(app: FastifyInstance) {
       ? [`Faltam ${6 - barras.length} tamanho(s). Até completar os 6, o cálculo cobra este trilho por metro.`]
       : [];
     return { alteracoes, barras, tabelaBarrasCompleta: barras.length === 6, avisos };
+  });
+
+  // ---------------------------------------------------------------- importação de preços (só ADMIN)
+
+  const corpoArquivo = z.object({
+    arquivo: z.string().trim().min(1, 'Escolha o arquivo').max(200),
+    conteudo: z.string().min(1, 'Arquivo vazio').max(14_000_000, 'Arquivo grande demais (máximo 10 MB).'),
+  });
+  const importar = { preHandler: exigir('catalogo.editar'), bodyLimit: 15 * 1024 * 1024 };
+
+  function lerCorpoArquivo(body: unknown) {
+    const c = corpoArquivo.safeParse(body);
+    if (!c.success) return { erro: mensagemErro(c.error) };
+    const nome = c.data.arquivo.replace(/^.*[\\/]/, '');
+    try {
+      return { nome, lido: lerArquivo(nome, Buffer.from(c.data.conteudo, 'base64')) };
+    } catch (e) {
+      if (e instanceof ErroPlanilha) return { erro: e.message };
+      throw e;
+    }
+  }
+
+  /** Planilha com o catálogo atual + códigos fixos que faltam, para preencher e importar. */
+  app.get('/api/catalogo/importacao/planilha', { preHandler: exigir('catalogo.editar') }, async (_req, res) => {
+    const hoje = new Date().toISOString().slice(0, 10);
+    return res.header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('content-disposition', `attachment; filename="tabela-precos-${hoje}.xlsx"`)
+      .send(await planilhaPrecos(app.db));
+  });
+
+  /** Prévia: lê a planilha e mostra o que vai mudar, sem gravar nada. */
+  app.post('/api/catalogo/importacao/previa', importar, async (req, res) => {
+    const r = lerCorpoArquivo(req.body);
+    if ('erro' in r) return res.code(400).send({ erro: r.erro });
+    return (await analisar(app.db, req.usuario!.lojaId, r.nome, r.lido)).previa;
+  });
+
+  /** Aplica a planilha (refaz a análise na hora; linhas com erro ficam de fora). */
+  app.post('/api/catalogo/importacao/aplicar', importar, async (req, res) => {
+    const r = lerCorpoArquivo(req.body);
+    if ('erro' in r) return res.code(400).send({ erro: r.erro });
+    const { previa, importacaoId } = await aplicar(app.db, req.usuario!.lojaId, req.usuario!.id, r.nome, r.lido);
+    if (!importacaoId) return res.code(400).send({ erro: 'Nada para aplicar: a planilha não muda nenhum preço.', previa });
+    return res.code(201).send({ importacaoId, previa });
+  });
+
+  app.get('/api/catalogo/importacoes', { preHandler: exigir('catalogo.editar') }, async (req) => ({
+    importacoes: await listarImportacoes(app.db, req.usuario!.lojaId),
+  }));
+
+  app.post<{ Params: { id: string } }>('/api/catalogo/importacoes/:id/desfazer', { preHandler: exigir('catalogo.editar') }, async (req, res) => {
+    if (!z.uuid().safeParse(req.params.id).success) return res.code(404).send({ erro: 'Importação não encontrada.' });
+    const r = await desfazer(app.db, req.usuario!.lojaId, req.usuario!.id, req.params.id);
+    if ('erro' in r) return res.code(r.status ?? 400).send({ erro: r.erro });
+    return r;
   });
 }

@@ -91,6 +91,7 @@ export const historicoPrecosProduto = pgTable('historico_precos_produto', {
   alteradoEm: timestamp('alterado_em', { withTimezone: true }).defaultNow(),
   tamanhoM: integer('tamanho_m'),
   motivo: varchar('motivo', { length: 200 }),
+  importacaoId: uuid('importacao_id'),
 });
 
 export const tipoPessoa = pgEnum('tipo_pessoa_enum', ['PF', 'PJ']);

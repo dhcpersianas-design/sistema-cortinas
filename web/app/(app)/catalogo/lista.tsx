@@ -43,7 +43,12 @@ export function ListaCatalogo({ verCusto, editar }: { verCusto: boolean; editar:
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">Catálogo</h1>
-        {editar && <Button asChild><Link href="/catalogo/novo">Novo produto</Link></Button>}
+        {editar && (
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline"><Link href="/catalogo/importar">Importar preços</Link></Button>
+            <Button asChild><Link href="/catalogo/novo">Novo produto</Link></Button>
+          </div>
+        )}
       </div>
       <div className="grid gap-2 sm:grid-cols-[1fr_14rem_auto]">
         <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por SKU, nome ou cor" aria-label="Buscar produtos" />
