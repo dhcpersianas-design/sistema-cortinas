@@ -5,7 +5,10 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist", "dados"],
+  "files": [
+    "dist",
+    "dados"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
@@ -21,5 +24,15 @@
     "@types/node": "^22.20.7",
     "typescript": "^5.9.3",
     "vitest": "^2.1.9"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./navegador": {
+      "types": "./dist/navegador.d.ts",
+      "default": "./dist/navegador.js"
+    }
   }
 }

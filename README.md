@@ -1,12 +1,44 @@
 # Sistema Cortinas
 
 ERP para loja de cortinas e persianas sob medida (orçamentos, produção e gestão),
-construído a partir da *Especificação Técnica ERP Cortinas e Persianas* v1.0.
+construído a partir da *Especificação Técnica ERP Cortinas e Persianas* v1.1.
 
 ## Módulos
 
 | Pasta | Conteúdo | Estado |
 |---|---|---|
-| [`motor-calculo/`](motor-calculo/README.md) | Motor de cálculo de cortinas e persianas (decimal exato, explosão BOM, alertas técnicos) | Pronto, 58 testes |
+| [`motor-calculo/`](motor-calculo/README.md) | Motor de cálculo (decimal exato, explosão BOM, alertas técnicos) | Pronto, 58 testes |
+| `api/` | API Fastify + PostgreSQL: migrações, login, perfis, catálogo, cálculo | Fundação |
+| `web/` | Next.js + Tailwind (padrão shadcn/ui), PWA: login, painel, equipe, catálogo | Fundação |
+| [`docs/`](docs/decisoes.md) | Decisões da fundação e arquitetura offline | |
 
-Próximos módulos (banco, API, telas) entram como novas pastas.
+Perfis de acesso: só **ADMIN** (acesso total) e **VENDEDOR** (vendedor em campo).
+Matriz completa em [`docs/decisoes.md`](docs/decisoes.md).
+
+## Rodar no computador
+
+Requer Node 22+ e PostgreSQL 15+ (ou Docker).
+
+```bash
+cp .env.example .env
+docker compose up -d                # banco local (opcional, se não tiver Postgres)
+npm install                         # instala tudo e compila o motor de cálculo
+npm run db:migrar                   # cria as tabelas e os dados base
+npm run db:exemplo                  # (opcional) catálogo fictício da especificação
+npm run admin:criar -- --email voce@loja.com --nome "Seu nome"   # mostra uma senha provisória
+
+npm run dev:api                     # API em http://localhost:3333
+npm run dev:web                     # app em http://localhost:3000
+```
+
+Preços do trilho por barra: preencha `motor-calculo/dados/precos-barra-trilho.csv` e rode
+`npm run precos-barra:importar`.
+
+## Testes
+
+```bash
+npm test                            # motor + API (a API precisa de DATABASE_URL_TESTE)
+npm run typecheck
+```
+
+Os testes da API apagam e recriam o banco de `DATABASE_URL_TESTE`; use um banco só para isso.
