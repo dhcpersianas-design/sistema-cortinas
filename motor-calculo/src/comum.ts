@@ -1,5 +1,5 @@
-import { Decimal, d, dinheiro, unitario, ZERO, type Numerico } from './decimal.js';
-import type { Alerta, ComponenteCalculado, Produto, ResultadoCalculo } from './tipos.js';
+import { Decimal, d, dinheiro, ErroSkuNaoEncontrado, unitario, ZERO, type Numerico } from './decimal.js';
+import type { Alerta, Catalogo, ComponenteCalculado, Produto, ResultadoCalculo } from './tipos.js';
 
 /** Lê um número da metadata do SKU; usa o padrão quando ausente. */
 export function metaNum(p: Produto, chave: string, padrao?: Numerico): Decimal {
@@ -20,6 +20,28 @@ export function metaBool(p: Produto, chave: string, padrao: boolean): boolean {
 export function metaStr(p: Produto, chave: string): string | undefined {
   const v = p.metadata?.[chave];
   return typeof v === 'string' ? v : undefined;
+}
+
+/**
+ * Busca um componente AUXILIAR (instalação, acessório, motor, ferragem...).
+ * Se o SKU não estiver cadastrado, o item continua sendo calculado sem essa linha
+ * e um alerta avisa o vendedor. O produto principal (persiana, tecido) segue obrigatório.
+ */
+export function obterAuxiliar(catalogo: Catalogo, sku: string, alertas: Alerta[], oQue: string): Produto | undefined {
+  try {
+    return catalogo.obter(sku);
+  } catch (e) {
+    if (!(e instanceof ErroSkuNaoEncontrado)) throw e;
+    if (!alertas.some((a) => a.codigo === 'SKU_AUXILIAR_AUSENTE' && a.skuSugerido === sku)) {
+      alertas.push({
+        codigo: 'SKU_AUXILIAR_AUSENTE',
+        severidade: 'ATENCAO',
+        mensagem: `${oQue} NÃO foi cobrado(a) neste item: o código ${sku} não está cadastrado (ou está inativo) no Catálogo. Cadastre ${sku} com o seu preço para entrar automaticamente, ou inclua o valor à mão.`,
+        skuSugerido: sku,
+      });
+    }
+    return undefined;
+  }
 }
 
 /**

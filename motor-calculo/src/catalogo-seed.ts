@@ -1,5 +1,5 @@
 import type { Catalogo, Produto } from './tipos.js';
-import { ErroEntrada } from './decimal.js';
+import { ErroSkuNaoEncontrado } from './decimal.js';
 
 /**
  * Catálogo de testes da seção 7/8 da especificação (valores FICTÍCIOS).
@@ -51,7 +51,7 @@ export function criarCatalogo(produtos: Produto[]): Catalogo {
   return {
     obter(sku: string): Produto {
       const p = mapa.get(sku);
-      if (!p) throw new ErroEntrada(`SKU não encontrado no catálogo: ${sku}`);
+      if (!p) throw new ErroSkuNaoEncontrado(sku);
       return p;
     },
   };

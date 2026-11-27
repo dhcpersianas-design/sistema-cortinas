@@ -1,4 +1,4 @@
-export { Decimal, d, ceilStep, dinheiro, ErroEntrada, type Numerico } from './decimal.js';
+export { Decimal, d, ceilStep, dinheiro, ErroEntrada, ErroSkuNaoEncontrado, type Numerico } from './decimal.js';
 export type * from './tipos.js';
 export { PRODUTOS_SEED, criarCatalogo, catalogoSeed } from './catalogo-seed.js';
 export {
