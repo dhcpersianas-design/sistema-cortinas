@@ -113,3 +113,34 @@ Tudo abaixo foi confirmado pelo Gabriel em 27/11/2026.
   (`tamanho_m`). Tabela de barras só para a categoria "Trilhos e Varoes"; o cálculo só cobra por barra
   quando os 6 tamanhos estão preenchidos (regra que já existia no motor). Produto não é apagado, é inativado.
 - O VENDEDOR vê o catálogo com preço de venda (inclusive por barra), sem custo e sem fornecedor.
+
+## 7. Configurador de orçamento e proposta, 27/11/2026
+
+Implementado conforme as decisões já tomadas (2 perfis, semáforo 45/35, markup 100%, trilho por barra,
+sem rapport, instalação acima de 3 m = 2x). Regras em `motor-calculo/src/configurador.ts` (usadas pela API e
+pelo app offline) e `api/src/orcamentos/`.
+
+- **Orçamento = projeto** (cliente + obra), com itens agrupados por **ambiente**. Cada item guarda o que o
+  vendedor escolheu (medidas e opções) e a explosão do motor.
+- **Edição manual auditada**: trocar, incluir, remover ou mudar a quantidade de componente vira um "ajuste"
+  com motivo opcional, aplicado sobre a explosão do motor e registrado em `orcamento_auditoria`.
+- **Snapshot**: item que não mudou mantém custo e preço gravados; reajuste do catálogo não altera orçamento
+  já feito. Há o botão "Atualizar preços pelo catálogo" para recalcular de propósito.
+- **Versões**: só o rascunho da versão mais nova é editável. "Enviar proposta" congela a versão. Mudar uma
+  versão enviada, antiga ou editada em outro aparelho grava a próxima versão (v2, v3…), nunca sobrescreve.
+- **Desconto e trava**: desconto em % ou R$, rateado entre itens e componentes pelo valor de venda (sobra de
+  centavos no maior). Margem do semáforo = **líquida** (após taxa da forma de pagamento, imposto e comissão).
+  Precisa da senha do ADMIN quando a margem fica vermelha **ou** o desconto passa do `desconto_max_pct` do
+  vendedor. A liberação vale enquanto margem e desconto não piorarem (inclusive na versão seguinte).
+- **Vendedor sem "pode ver custos"** não recebe custo, lucro, margem nem taxa; vê o semáforo.
+- **PDF da proposta** (pdfkit, gerado na API): agrupado por ambiente, sem custo; "Detalhar componentes" lista
+  só nome e quantidade. Aviso "Valores sujeitos a conferência técnica no local" até marcar "medidas conferidas".
+- **WhatsApp**: link público do PDF com token, válido até a validade do orçamento, só para versão enviada.
+- **Medidas** em metros ou centímetros (o vendedor escolhe); largura acima de 15 m ou altura acima de 10 m
+  pede confirmação no app e é recusada pela API.
+- **Status**: Rascunho → Enviado → Aguardando medição → Em negociação; Perdido (com motivo) a qualquer momento.
+  Aprovar e virar pedido fica para a próxima etapa.
+
+Suposições (a confirmar com o Gabriel; todas editáveis em `parametros_sistema` ou no próprio orçamento):
+validade da proposta 15 dias, prazo de entrega 30 dias, garantia 12 meses, fator padrão 2,5 (tecido) e
+2,0 (forro), 1 controle remoto por ambiente (as outras persianas motorizadas do ambiente vêm com 0).

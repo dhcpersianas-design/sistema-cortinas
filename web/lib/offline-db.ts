@@ -4,10 +4,11 @@
  *  - clientes: cópia local dos clientes do vendedor (pacote offline)
  *  - fila: gravações feitas sem internet, enviadas quando a conexão volta
  *  - meta: datas da última sincronização, avisos de conflito etc.
+ *  - orcamentos: orçamentos do vendedor no aparelho (os com `pendente` ainda não foram enviados)
  */
 const NOME = 'sistema-cortinas';
-const VERSAO = 1;
-export type Store = 'clientes' | 'fila' | 'meta';
+const VERSAO = 2;
+export type Store = 'clientes' | 'fila' | 'meta' | 'orcamentos';
 
 let aberto: Promise<IDBDatabase> | null = null;
 
@@ -20,6 +21,7 @@ function abrir(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('clientes')) db.createObjectStore('clientes', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('fila')) db.createObjectStore('fila', { keyPath: 'idOperacao' });
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
+      if (!db.objectStoreNames.contains('orcamentos')) db.createObjectStore('orcamentos', { keyPath: 'id' });
     };
     r.onsuccess = () => ok(r.result);
     r.onerror = () => { aberto = null; falha(r.error); };

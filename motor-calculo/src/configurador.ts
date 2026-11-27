@@ -1,0 +1,287 @@
+/**
+ * Configurador de orçamento (especificação v1.1, seções 1, 3 e 11.1).
+ * Funções puras, usadas pela API (oficial) e pelo app offline (provisório):
+ *  - calcularItem: explode o item pelo motor e aplica os ajustes manuais do vendedor
+ *    (trocar, incluir, remover componente ou mudar quantidade), na ordem em que foram feitos.
+ *  - totalizarOrcamento: desconto (% ou R$), rateio proporcional ao valor de venda,
+ *    taxa de pagamento, imposto e comissão -> margem LÍQUIDA e semáforo 45/35.
+ *  - descricaoComercial: o texto limpo que vai para o PDF do cliente.
+ */
+import { Decimal, d, dinheiro, ErroEntrada, ZERO, type Numerico } from './decimal.js';
+import { componente, margemPct } from './comum.js';
+import { calcularCortina, type EntradaCortina } from './cortina.js';
+import { calcularPersiana, medidaProducao, type EntradaPersiana } from './persiana.js';
+import { semaforoMargem, LIMITES_SEMAFORO_PADRAO, type CorSemaforo, type LimitesSemaforo } from './precificacao.js';
+import type { Alerta, Catalogo, ComponenteCalculado, ResultadoCalculo } from './tipos.js';
+
+export type EntradaItem =
+  | { tipo: 'CORTINA'; entrada: EntradaCortina }
+  | { tipo: 'PERSIANA'; entrada: EntradaPersiana };
+
+/** Ajuste manual sobre a explosão do motor (regra de ouro 3: com auditoria). */
+export type Ajuste =
+  | { tipo: 'QUANTIDADE'; sku: string; quantidade: Numerico; motivo?: string }
+  | { tipo: 'REMOVER'; sku: string; motivo?: string }
+  | { tipo: 'ADICIONAR'; sku: string; quantidade: Numerico; motivo?: string }
+  | { tipo: 'SUBSTITUIR'; sku: string; novoSku: string; motivo?: string };
+
+export interface ComponenteItem extends ComponenteCalculado {
+  /** Quantidade que o motor calculou (null quando o componente foi incluído à mão). */
+  quantidadeCalculada: Decimal | null;
+  /** Quantidade digitada pelo vendedor (null = vale a do motor). */
+  quantidadeOverride: Decimal | null;
+  origem: 'MOTOR' | 'MANUAL';
+}
+
+export interface ResultadoItem {
+  tipo: 'CORTINA' | 'PERSIANA';
+  componentes: ComponenteItem[];
+  custoTotal: Decimal;
+  vendaTotal: Decimal;
+  alertas: Alerta[];
+  especificacaoTecnica: Record<string, unknown>;
+  larguraProducao: Decimal;
+  alturaProducao: Decimal;
+  larguraBruta: Decimal | null;
+  alturaBruta: Decimal | null;
+  /** O motor puro, antes dos ajustes. */
+  motor: ResultadoCalculo;
+}
+
+const QTD_INTEIRA = new Set(['UN', 'PC']);
+
+function quantidadeValida(sku: string, unidade: string, q: Numerico): Decimal {
+  const v = d(q);
+  if (v.lte(0)) throw new ErroEntrada(`Quantidade de ${sku} deve ser maior que zero (para tirar o componente, use remover).`);
+  if (QTD_INTEIRA.has(unidade) && !v.isInteger()) throw new ErroEntrada(`${sku} é vendido em ${unidade}: use quantidade inteira.`);
+  return v.toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+}
+
+/** Recalcula a linha com a nova quantidade (mesmos unitários do snapshot). */
+function comQuantidade(c: ComponenteItem, q: Decimal, override: boolean): ComponenteItem {
+  return {
+    ...c,
+    quantidade: q,
+    quantidadeOverride: override ? q : null,
+    custoTotal: dinheiro(q.mul(c.custoUnitario)),
+    precoTotal: dinheiro(q.mul(c.precoUnitario)),
+  };
+}
+
+export function aplicarAjustes(base: ComponenteCalculado[], ajustes: Ajuste[], catalogo: Catalogo): ComponenteItem[] {
+  let lista: ComponenteItem[] = base.map((c) => ({ ...c, quantidadeCalculada: c.quantidade, quantidadeOverride: null, origem: 'MOTOR' }));
+  const achar = (sku: string) => {
+    const i = lista.findIndex((c) => c.sku === sku);
+    if (i < 0) throw new ErroEntrada(`Ajuste manual: o componente ${sku} não está mais neste item. Refaça o ajuste.`);
+    return i;
+  };
+  for (const a of ajustes) {
+    if (a.tipo === 'QUANTIDADE') {
+      const i = achar(a.sku);
+      const c = lista[i]!;
+      lista[i] = comQuantidade(c, quantidadeValida(a.sku, c.unidade, a.quantidade), true);
+    } else if (a.tipo === 'REMOVER') {
+      lista.splice(achar(a.sku), 1);
+    } else if (a.tipo === 'ADICIONAR') {
+      if (lista.some((c) => c.sku === a.sku)) throw new ErroEntrada(`${a.sku} já está no item: altere a quantidade em vez de incluir de novo.`);
+      const p = catalogo.obter(a.sku);
+      const q = quantidadeValida(a.sku, p.unidade, a.quantidade);
+      lista.push({ ...componente(p, q, `incluído manualmente: ${q.toString()} ${p.unidade}`), quantidadeCalculada: null, quantidadeOverride: q, origem: 'MANUAL' });
+    } else if (a.tipo === 'SUBSTITUIR') {
+      const i = achar(a.sku);
+      const c = lista[i]!;
+      if (a.novoSku === a.sku) continue;
+      if (lista.some((x) => x.sku === a.novoSku)) throw new ErroEntrada(`${a.novoSku} já está no item.`);
+      const p = catalogo.obter(a.novoSku);
+      if (p.unidade !== c.unidade) throw new ErroEntrada(`Troca de ${a.sku} (${c.unidade}) por ${a.novoSku} (${p.unidade}): a unidade precisa ser a mesma.`);
+      const novo = componente(p, c.quantidade, `${c.formulaLog} | trocado de ${a.sku}`);
+      lista[i] = { ...novo, quantidadeCalculada: c.quantidadeCalculada, quantidadeOverride: c.quantidadeOverride, origem: 'MANUAL' };
+    } else {
+      throw new ErroEntrada('Tipo de ajuste desconhecido.');
+    }
+  }
+  return lista;
+}
+
+/** Explode o item pelo motor e aplica os ajustes manuais. */
+export function calcularItem(item: EntradaItem, ajustes: Ajuste[], catalogo: Catalogo): ResultadoItem {
+  let motor: ResultadoCalculo;
+  let larguraProducao: Decimal, alturaProducao: Decimal;
+  let larguraBruta: Decimal | null = null, alturaBruta: Decimal | null = null;
+  if (item.tipo === 'CORTINA') {
+    motor = calcularCortina(item.entrada, catalogo);
+    larguraProducao = d(item.entrada.larguraTrilho);
+    alturaProducao = d(item.entrada.alturaPronta);
+  } else if (item.tipo === 'PERSIANA') {
+    motor = calcularPersiana(item.entrada, catalogo);
+    const m = medidaProducao(item.entrada.medida);
+    larguraProducao = m.largura;
+    alturaProducao = m.altura;
+    if (m.vaoBruto) { larguraBruta = d(m.vaoBruto.largura); alturaBruta = d(m.vaoBruto.altura); }
+  } else {
+    throw new ErroEntrada('Tipo de item inválido (use CORTINA ou PERSIANA).');
+  }
+  const componentes = aplicarAjustes(motor.componentes, ajustes, catalogo);
+  if (componentes.length === 0) throw new ErroEntrada('O item ficou sem componentes.');
+  return {
+    tipo: item.tipo,
+    componentes,
+    custoTotal: componentes.reduce((s, c) => s.plus(c.custoTotal), ZERO),
+    vendaTotal: componentes.reduce((s, c) => s.plus(c.precoTotal), ZERO),
+    alertas: motor.alertas,
+    especificacaoTecnica: motor.especificacaoTecnica,
+    larguraProducao, alturaProducao, larguraBruta, alturaBruta,
+    motor,
+  };
+}
+
+const br = (x: Numerico) => d(x).toFixed(2).replace('.', ',');
+
+/** "Cortina Wave em Linho Sintetico Gaze c/ forro Forro Microfibra 80% (3,00 m x 2,60 m)". */
+export function descricaoComercial(item: EntradaItem, catalogo: Catalogo): string {
+  if (item.tipo === 'CORTINA') {
+    const e = item.entrada;
+    const conf = e.confeccao === 'WAVE' ? 'Wave' : 'Prega';
+    const forro = e.forro ? ` c/ forro ${catalogo.obter(e.forro.sku).nome}` : '';
+    return `Cortina ${conf} em ${catalogo.obter(e.tecido.sku).nome}${forro} (${br(e.larguraTrilho)} m x ${br(e.alturaPronta)} m)`;
+  }
+  const e = item.entrada;
+  const m = medidaProducao(e.medida);
+  const extras = [e.acionamento === 'MOTORIZADO' ? 'motorizada' : null, e.possuiBando ? 'c/ bandô' : null].filter(Boolean).join(', ');
+  return `${catalogo.obter(e.sku).nome}${extras ? `, ${extras}` : ''} (${br(m.largura)} m x ${br(m.altura)} m)`;
+}
+
+// ------------------------------------------------------------------ totais e rateio
+
+export interface LinhaParaRateio {
+  id: string;
+  vendaTotal: Numerico;
+  componentes: { id: string; precoTotal: Numerico }[];
+}
+
+/**
+ * Rateio do desconto (11.1 item 4): proporcional ao valor de venda de cada item e, dentro
+ * do item, de cada componente. Arredondado em centavos; a sobra vai para o de maior valor.
+ */
+export function ratear<T extends { id: string; valor: Decimal }>(linhas: T[], total: Decimal): Map<string, Decimal> {
+  const out = new Map<string, Decimal>();
+  const soma = linhas.reduce((s, l) => s.plus(l.valor), ZERO);
+  if (linhas.length === 0) return out;
+  if (soma.isZero()) { linhas.forEach((l) => out.set(l.id, ZERO)); return out; }
+  let distribuido = ZERO;
+  for (const l of linhas) {
+    const parte = total.mul(l.valor).div(soma).toDecimalPlaces(2, Decimal.ROUND_DOWN);
+    out.set(l.id, parte);
+    distribuido = distribuido.plus(parte);
+  }
+  const maior = linhas.reduce((a, b) => (b.valor.gt(a.valor) ? b : a));
+  out.set(maior.id, out.get(maior.id)!.plus(total.minus(distribuido)));
+  return out;
+}
+
+export function ratearDesconto(itens: LinhaParaRateio[], desconto: Numerico) {
+  const total = d(desconto);
+  const porItem = ratear(itens.map((i) => ({ id: i.id, valor: d(i.vendaTotal) })), total);
+  return itens.map((i) => {
+    const descItem = porItem.get(i.id) ?? ZERO;
+    const porComp = ratear(i.componentes.map((c) => ({ id: c.id, valor: d(c.precoTotal) })), descItem);
+    return {
+      id: i.id,
+      descontoRateado: descItem,
+      vendaLiquida: d(i.vendaTotal).minus(descItem),
+      componentes: i.componentes.map((c) => {
+        const dc = porComp.get(c.id) ?? ZERO;
+        return { id: c.id, descontoRateado: dc, precoTotalLiquido: d(c.precoTotal).minus(dc) };
+      }),
+    };
+  });
+}
+
+export interface CondicoesOrcamento {
+  /** Desconto em % do subtotal ou em R$. */
+  descontoTipo: 'PERCENTUAL' | 'VALOR';
+  descontoValor: Numerico;
+  acrescimo?: Numerico;
+}
+
+export interface ParametrosMargem {
+  /** Taxa da forma de pagamento (MDR + antecipação), em %. */
+  taxaPagamentoPct?: Numerico;
+  /** ALIQUOTA_IMPOSTO_VENDA_PCT (MEI: 0). */
+  aliquotaImpostoPct?: Numerico;
+  /** Comissão do vendedor, em %. */
+  comissaoPct?: Numerico;
+  limites?: LimitesSemaforo;
+}
+
+export interface TotaisOrcamento {
+  subtotal: Decimal;
+  descontoValor: Decimal;
+  descontoPct: Decimal;
+  acrescimo: Decimal;
+  total: Decimal;
+  custoTotal: Decimal;
+  lucroBruto: Decimal;
+  margemBrutaPct: Decimal;
+  taxaPagamento: Decimal;
+  imposto: Decimal;
+  comissao: Decimal;
+  lucroLiquido: Decimal;
+  /** Margem líquida (após taxa, imposto e comissão): é a que vale para o semáforo (11.1 item 3). */
+  margemLiquidaPct: Decimal;
+  semaforo: CorSemaforo;
+}
+
+export function totalizarOrcamento(
+  itens: { vendaTotal: Numerico; custoTotal: Numerico }[],
+  cond: CondicoesOrcamento,
+  p: ParametrosMargem = {},
+): TotaisOrcamento {
+  const subtotal = itens.reduce((s, i) => s.plus(d(i.vendaTotal)), ZERO);
+  const custoTotal = itens.reduce((s, i) => s.plus(d(i.custoTotal)), ZERO);
+  const v = d(cond.descontoValor || 0);
+  if (v.lt(0)) throw new ErroEntrada('Desconto não pode ser negativo.');
+  let descontoValor: Decimal;
+  if (cond.descontoTipo === 'PERCENTUAL') {
+    if (v.gt(100)) throw new ErroEntrada('Desconto acima de 100%.');
+    descontoValor = dinheiro(subtotal.mul(v).div(100));
+  } else {
+    descontoValor = dinheiro(v);
+  }
+  if (descontoValor.gt(subtotal)) throw new ErroEntrada('Desconto maior que o valor do orçamento.');
+  const descontoPct = subtotal.isZero() ? ZERO : descontoValor.div(subtotal).mul(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+  const acrescimo = dinheiro(d(cond.acrescimo || 0));
+  if (acrescimo.lt(0)) throw new ErroEntrada('Acréscimo não pode ser negativo.');
+  const total = subtotal.minus(descontoValor).plus(acrescimo);
+  const pct = (x: Numerico | undefined) => dinheiro(total.mul(d(x ?? 0)).div(100));
+  const taxaPagamento = pct(p.taxaPagamentoPct);
+  const imposto = pct(p.aliquotaImpostoPct);
+  const comissao = pct(p.comissaoPct);
+  const lucroBruto = total.minus(custoTotal);
+  const lucroLiquido = lucroBruto.minus(taxaPagamento).minus(imposto).minus(comissao);
+  const margemLiquidaPct = margemPct(lucroLiquido, total);
+  return {
+    subtotal, descontoValor, descontoPct, acrescimo, total, custoTotal,
+    lucroBruto, margemBrutaPct: margemPct(lucroBruto, total),
+    taxaPagamento, imposto, comissao, lucroLiquido, margemLiquidaPct,
+    semaforo: semaforoMargem(margemLiquidaPct, p.limites ?? LIMITES_SEMAFORO_PADRAO).cor,
+  };
+}
+
+export interface ChecagemLiberacao {
+  exige: boolean;
+  motivos: string[];
+}
+
+/**
+ * Trava de desconto (11.1 item 3): precisa da senha do ADMIN quando a margem fica
+ * vermelha ou o desconto passa do limite do vendedor (`desconto_max_pct`).
+ */
+export function checarLiberacao(t: Pick<TotaisOrcamento, 'semaforo' | 'descontoPct' | 'margemLiquidaPct'>, descontoMaxPct: Numerico | null): ChecagemLiberacao {
+  const motivos: string[] = [];
+  if (t.semaforo === 'VERMELHO') motivos.push(`Margem vermelha (${t.margemLiquidaPct.toFixed(2).replace('.', ',')}%).`);
+  if (descontoMaxPct != null && t.descontoPct.gt(d(descontoMaxPct))) {
+    motivos.push(`Desconto de ${t.descontoPct.toFixed(2).replace('.', ',')}% acima do limite do vendedor (${d(descontoMaxPct).toFixed(2).replace('.', ',')}%).`);
+  }
+  return { exige: motivos.length > 0, motivos };
+}

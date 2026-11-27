@@ -11,6 +11,7 @@ import { rotasCatalogo } from './rotas/catalogo.js';
 import { rotasCalculo } from './rotas/calculo.js';
 import { rotasClientes } from './rotas/clientes.js';
 import { rotasFornecedores } from './rotas/fornecedores.js';
+import { rotasOrcamentos } from './rotas/orcamentos.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -49,5 +50,6 @@ export async function criarApp(config: Config, opcoes: { log?: boolean } = {}): 
   await app.register(rotasCalculo);
   await app.register(rotasClientes);
   await app.register(rotasFornecedores);
+  await app.register(rotasOrcamentos);
   return app;
 }
