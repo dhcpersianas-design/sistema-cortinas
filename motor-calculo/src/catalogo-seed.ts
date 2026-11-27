@@ -41,6 +41,9 @@ export const PRODUTOS_SEED: Produto[] = [
   { sku: 'SRV-001', nome: 'Instalacao Cortina ate 3,00m', unidade: 'UN', custoUnitario: '80.00', precoVendaUnitario: '180.00', metadata: { tipo: 'CORTINA' } },
   { sku: 'SRV-002', nome: 'Instalacao Persiana Manual', unidade: 'PC', custoUnitario: '60.00', precoVendaUnitario: '140.00', metadata: { tipo: 'PERSIANA_MANUAL' } },
   { sku: 'SRV-003', nome: 'Instalacao Persiana Motorizada', unidade: 'PC', custoUnitario: '110.00', precoVendaUnitario: '250.00', metadata: { tipo: 'PERSIANA_MOTORIZADA' } },
+  // v1.1 (valores fictícios, a definir pela loja)
+  { sku: 'SRV-004', nome: 'Instalacao Cortina acima 3,00m', unidade: 'UN', custoUnitario: '160.00', precoVendaUnitario: '360.00', metadata: { tipo: 'CORTINA', larg_min_m: 3.01, multiplicador_sobre: 'SRV-001', multiplicador: 2 } },
+  { sku: 'SRV-006', nome: 'Adicional Pe-Direito Alto >3m', unidade: 'UN', custoUnitario: '60.00', precoVendaUnitario: '150.00', metadata: { tipo: 'ADICIONAL', alt_min_m: 3.01 } },
 ];
 
 export function criarCatalogo(produtos: Produto[]): Catalogo {

@@ -31,3 +31,4 @@ export {
 export { resumirOrcamento, paraJSON, type ItemOrcamento, type ResumoOrcamento } from './orcamento.js';
 export { lerPrecosBarraCSV, aplicarPrecosBarra, normalizarNumero, type LinhaPrecoBarra, type ResultadoPrecosBarra } from './precos-barra.js';
 export { carregarCatalogo, CAMINHO_PRECOS_BARRA } from './carregar.js';
+export { precoVendaSugerido, semaforoMargem, MARKUP_PADRAO_PCT, LIMITES_SEMAFORO_PADRAO, type CorSemaforo, type LimitesSemaforo } from './precificacao.js';

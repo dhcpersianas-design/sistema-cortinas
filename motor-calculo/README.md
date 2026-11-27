@@ -16,7 +16,7 @@ técnicos e dados para a ficha de produção. Implementa as seções 2 a 6 da
 
 ```bash
 npm install
-npm test        # 58 testes (vitest)
+npm test        # 63 testes (vitest)
 npm run build   # gera dist/
 ```
 
@@ -41,6 +41,17 @@ const persiana = calcularPersiana({
 paraJSON(cortina); // strings decimais prontas para API/banco
 ```
 
+## Regras da v1.1 da especificação
+
+- **Instalação de cortina:** trilho até 3,00 m → SRV-001; acima → SRV-004, sem
+  tamanho máximo, valor 2x o SRV-001 (fictício: custo 160, venda 360).
+- **Pé-direito alto (H > 3,00 m):** multiplicador na mão de obra + 1 UN de
+  SRV-006 (andaime/escada especial; fictício: custo 60, venda 150).
+- **Markup padrão:** `precoVendaSugerido(custo)` = custo + 100% (2x). Usado no
+  cadastro/reajuste do catálogo; o ADMIN pode alterar produto a produto.
+- **Semáforo de margem:** `semaforoMargem(pct)` → VERDE ≥ 45%, AMARELO 35–44,99%,
+  VERMELHO < 35% (`exigeSenhaAdmin`). Limites editáveis.
+
 ## Preços do trilho por tamanho de barra
 
 A planilha [`dados/precos-barra-trilho.csv`](dados/precos-barra-trilho.csv) já vem
@@ -62,6 +73,7 @@ com cada trilho/varão nos tamanhos de 1 a 6 m. Basta preencher `custo` e `venda
 | `src/cortina.ts` | Seção 4.1: tecido/forro, sentido de corte (sem rapport), MDO, trilho/varão, deslizantes, fita, terminais, garras/suportes, instalação, alertas |
 | `src/persiana.ts` | Seção 4.2: vão bruto → produção, área com mínimos, bando, guia, motor/controle/hub, redutor, divisão em peças, alertas |
 | `src/precos-barra.ts`, `src/carregar.ts` | Leitura da planilha de preços por barra e montagem do catálogo |
+| `src/precificacao.ts` | Markup padrão e semáforo de margem |
 | `src/orcamento.ts` | Soma de itens e margem consolidada; `paraJSON` |
 | `src/catalogo-seed.ts` | 27 SKUs fictícios da seção 7/8 |
 | `test/` | Casos 1 e 2 da seção 6 + bordas |
@@ -84,9 +96,8 @@ com cada trilho/varão nos tamanhos de 1 a 6 m. Basta preencher `custo` e `venda
 | Código | Severidade | Quando |
 |---|---|---|
 | `CORTE_EM_TIRAS` | INFO | H_corte > largura do rolo, ou tecido não permite virar a trama |
-| `PE_DIREITO_ALTO` | ATENCAO | Altura pronta > 3,00 m (aplica `fator_pe_direito_alto` do SKU de MDO) |
+| `PE_DIREITO_ALTO` | ATENCAO | Altura pronta > 3,00 m (aplica `fator_pe_direito_alto` do SKU de MDO e inclui SRV-006) |
 | `TRILHO_ACIMA_BARRA_MAX` | ATENCAO | Trilho > 6,00 m (precisa de mais de uma barra) |
-| `INSTALACAO_FAIXA` | ATENCAO | Trilho > 3,00 m com instalação "até 3,00 m" |
 | `CORTINEIRO_RASO` | CRITICO | Wave simples < 15 cm; Wave c/ forro em trilho duplo < 18 cm |
 | `CORTINEIRO_NO_LIMITE` | ATENCAO | Wave c/ forro entre 18 e 22 cm |
 | `FORRO_SEM_VIA` | ATENCAO | Forro em trilho/varão de 1 via |

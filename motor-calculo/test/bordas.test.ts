@@ -234,7 +234,7 @@ describe('Cortina: deslizantes, garras e trilho', () => {
     const r = calcularCortina(cortina({ larguraTrilho: '6.00' }), catalogoSeed);
     expect(qtd(r, 'TRI-002')).toBe('6');
     expect(qtd(r, 'FIX-003')).toBeUndefined();
-    expect(codigos(r)).toEqual(['INSTALACAO_FAIXA']);
+    expect(codigos(r)).toEqual([]);
   });
 
   it('decompõe em barras de 6 m + resto arredondado ao metro', () => {
@@ -251,7 +251,7 @@ describe('Cortina: deslizantes, garras e trilho', () => {
     const r = calcularCortina(cortina({ larguraTrilho: '6.10' }), catalogoSeed);
     expect(qtd(r, 'TRI-002')).toBe('7');
     expect(qtd(r, 'FIX-003')).toBeUndefined();
-    expect(codigos(r)).toEqual(['TRILHO_ACIMA_BARRA_MAX', 'INSTALACAO_FAIXA']);
+    expect(codigos(r)).toEqual(['TRILHO_ACIMA_BARRA_MAX']);
     expect(r.alertas[0]!.mensagem).toContain('1 barra(s) de 6 m + 1 barra(s) de 1 m');
     expect((r.especificacaoTecnica.trilho as { barras: unknown }).barras).toEqual([
       { tamanhoM: '6.00', quantidade: 1 },
@@ -296,6 +296,25 @@ describe('Cortina: deslizantes, garras e trilho', () => {
   });
 });
 
+describe('Cortina: faixas de instalação (v1.1)', () => {
+  it('até 3,00 m usa SRV-001; acima usa SRV-004 (2x), sem tamanho máximo', () => {
+    const inst = (l: string) => {
+      const r = calcularCortina(cortina({ larguraTrilho: l }), catalogoSeed);
+      return r.componentes.filter((c) => c.sku.startsWith('SRV-')).map((c) => `${c.sku}:${c.precoTotal.toFixed(2)}`);
+    };
+    expect(inst('3.00')).toEqual(['SRV-001:180.00']);
+    expect(inst('3.01')).toEqual(['SRV-004:360.00']);
+    expect(inst('9.50')).toEqual(['SRV-004:360.00']);
+  });
+
+  it('SRV-004 vale 2x o SRV-001 no catálogo fictício', () => {
+    const a = catalogoSeed.obter('SRV-001');
+    const b = catalogoSeed.obter('SRV-004');
+    expect(d(b.precoVendaUnitario).eq(d(a.precoVendaUnitario).mul(2))).toBe(true);
+    expect(d(b.custoUnitario).eq(d(a.custoUnitario).mul(2))).toBe(true);
+  });
+});
+
 describe('Cortina: pé-direito alto, cortineiro e forro', () => {
   it('H > 3,00 aplica multiplicador do SKU na mão de obra e alerta andaime', () => {
     const r = calcularCortina(cortina({ alturaPronta: '3.20', forro: { sku: 'TEC-002', fator: '2' } }), catalogoSeed);
@@ -305,11 +324,13 @@ describe('Cortina: pé-direito alto, cortineiro e forro', () => {
     expect(mdo1.precoUnitario.toFixed(2)).toBe('71.50'); // 55 x 1,30
     expect(mdo2.precoUnitario.toFixed(2)).toBe('50.00'); // 40 x 1,25
     expect(codigos(r)).toContain('PE_DIREITO_ALTO');
+    expect(qtd(r, 'SRV-006')).toBe('1');
   });
 
   it('3,00 exatos não aplica adicional', () => {
     const r = calcularCortina(cortina({ alturaPronta: '3.00' }), catalogoSeed);
     expect(codigos(r)).not.toContain('PE_DIREITO_ALTO');
+    expect(qtd(r, 'SRV-006')).toBeUndefined();
   });
 
   it('cortineiro raso para Wave com forro em trilho duplo', () => {
