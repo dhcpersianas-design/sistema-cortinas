@@ -12,7 +12,7 @@ import { componente, margemPct } from './comum.js';
 import { calcularCortina, type EntradaCortina } from './cortina.js';
 import { calcularPersiana, medidaProducao, type EntradaPersiana } from './persiana.js';
 import { semaforoMargem, LIMITES_SEMAFORO_PADRAO, type CorSemaforo, type LimitesSemaforo } from './precificacao.js';
-import type { Alerta, Catalogo, ComponenteCalculado, ResultadoCalculo } from './tipos.js';
+import type { Alerta, Catalogo, ComponenteCalculado, Produto, ResultadoCalculo } from './tipos.js';
 
 export type EntradaItem =
   | { tipo: 'CORTINA'; entrada: EntradaCortina }
@@ -141,7 +141,7 @@ const br = (x: Numerico) => d(x).toFixed(2).replace('.', ',');
 export function descricaoComercial(item: EntradaItem, catalogo: Catalogo): string {
   if (item.tipo === 'CORTINA') {
     const e = item.entrada;
-    const conf = e.confeccao === 'WAVE' ? 'Wave' : 'Prega';
+    const conf = { WAVE: 'Wave', PREGA: 'Prega macho', FRANZIDO: 'Franzida' }[e.confeccao] ?? e.confeccao;
     const forro = e.forro ? ` c/ forro ${catalogo.obter(e.forro.sku).nome}` : '';
     return `Cortina ${conf} em ${catalogo.obter(e.tecido.sku).nome}${forro} (${br(e.larguraTrilho)} m x ${br(e.alturaPronta)} m)`;
   }
@@ -284,4 +284,71 @@ export function checarLiberacao(t: Pick<TotaisOrcamento, 'semaforo' | 'descontoP
     motivos.push(`Desconto de ${t.descontoPct.toFixed(2).replace('.', ',')}% acima do limite do vendedor (${d(descontoMaxPct).toFixed(2).replace('.', ',')}%).`);
   }
   return { exige: motivos.length > 0, motivos };
+}
+
+// ------------------------------------------------------------------ garantia por item
+
+/**
+ * Garantia em meses (Gabriel, 27/11/2026): padrão 12 meses; Persiana Rolo, Double Vision e
+ * Painel 24 meses; motores (cortina ou persiana) 60 meses. `garantia_meses` na metadata do
+ * produto, quando preenchido, vale mais que a regra.
+ */
+export function garantiaMesesProduto(p: Pick<Produto, 'nome' | 'metadata'>): number {
+  const m = p.metadata?.['garantia_meses'];
+  if (m !== undefined && m !== null && m !== '' && Number.isFinite(Number(m))) return Math.round(Number(m));
+  if (/motor/i.test(p.nome) || p.metadata?.['torque_nm'] !== undefined) return 60;
+  if (/persiana/i.test(p.nome) && /(rolo|double vision|painel)/i.test(p.nome)) return 24;
+  return 12;
+}
+
+export interface GarantiaItem {
+  /** Garantia do produto principal do item (primeiro componente: tecido ou persiana). */
+  meses: number;
+  /** Garantia do motor, quando o item é motorizado. */
+  motorMeses: number | null;
+}
+
+export function garantiaDoItem(skus: string[], catalogo: Catalogo): GarantiaItem {
+  let meses = 12;
+  let motorMeses: number | null = null;
+  skus.forEach((sku, i) => {
+    let p: Produto;
+    try { p = catalogo.obter(sku); } catch { return; }
+    const g = garantiaMesesProduto(p);
+    const ehMotor = /motor/i.test(p.nome) || p.metadata?.['torque_nm'] !== undefined;
+    if (ehMotor) motorMeses = Math.max(motorMeses ?? 0, g);
+    else if (i === 0) meses = g;
+  });
+  return { meses, motorMeses };
+}
+
+export function textoGarantia(g: GarantiaItem): string {
+  const t = (m: number) => (m >= 24 && m % 12 === 0 ? `${m / 12} anos` : `${m} meses`);
+  return g.motorMeses ? `${t(g.meses)}; motor ${t(g.motorMeses)}` : t(g.meses);
+}
+
+// ------------------------------------------------------------------ controle remoto
+
+export interface OpcaoControle { sku: string; canais: number }
+
+/**
+ * Sugestão de controle remoto (proposta, a confirmar com o Gabriel): cada canal aciona 1 peça
+ * motorizada. Para N peças agrupadas (padrão: o ambiente), sugere o MENOR controle que cubra todas;
+ * acima do maior, usa vários do maior e completa com o menor que cubra o resto. O vendedor pode mudar.
+ */
+export function sugerirControles(pecas: number, opcoes: OpcaoControle[]): { sku: string; canais: number; quantidade: number }[] {
+  if (pecas <= 0 || opcoes.length === 0) return [];
+  const ord = [...opcoes].filter((o) => o.canais > 0).sort((a, b) => a.canais - b.canais);
+  if (ord.length === 0) return [];
+  const maior = ord[ord.length - 1]!;
+  const out = new Map<string, { sku: string; canais: number; quantidade: number }>();
+  const somar = (o: OpcaoControle) => {
+    const x = out.get(o.sku) ?? { ...o, quantidade: 0 };
+    x.quantidade++;
+    out.set(o.sku, x);
+  };
+  let resto = pecas;
+  while (resto > maior.canais) { somar(maior); resto -= maior.canais; }
+  somar(ord.find((o) => o.canais >= resto)!);
+  return [...out.values()];
 }

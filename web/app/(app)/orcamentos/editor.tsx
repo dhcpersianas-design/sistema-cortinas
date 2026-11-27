@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Ajuste, Catalogo } from '@sistema/motor-calculo/navegador';
+import { sugerirControles, type Ajuste, type Catalogo } from '@sistema/motor-calculo/navegador';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -136,6 +136,41 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
     const itens = existe ? doc!.itens.map((i) => (i.id === item.id ? item : i)) : [...doc!.itens, item];
     aplicar({ ...doc!, itens }, { mensagem: existe ? 'Item atualizado.' : 'Item incluído.' }).then((foi) => { if (foi) setForm(null); });
   }
+  type EntradaPersiana = { acionamento?: string; qtdControles?: number; numPecas?: number; skus?: Record<string, string> };
+  /** Controles do ambiente: cada canal aciona 1 peça motorizada (Gabriel, 27/11/2026). */
+  function controlesDoAmbiente(itens: Item[]) {
+    const motorizadas = itens.filter((i) => i.tipo === 'PERSIANA' && (i.entrada as EntradaPersiana).acionamento === 'MOTORIZADO');
+    if (motorizadas.length === 0) return null;
+    const pecas = motorizadas.reduce((s, i) => s + ((i.entrada as EntradaPersiana).numPecas ?? 1), 0);
+    const opcoes = produtos.filter((p) => Number(p.metadata?.canais) > 0).map((p) => ({ sku: p.sku, canais: Number(p.metadata.canais) }));
+    const sugestao = sugerirControles(pecas, opcoes);
+    const atual = motorizadas.flatMap((i) => {
+      const e = i.entrada as EntradaPersiana;
+      const q = e.qtdControles ?? 1;
+      return q > 0 ? [{ sku: e.skus?.controle ?? 'MOT-002', quantidade: q }] : [];
+    });
+    const chave = (l: { sku: string; quantidade: number }[]) => l.map((x) => `${x.sku}x${x.quantidade}`).sort().join(',');
+    const nome = (sku: string) => produtos.find((p) => p.sku === sku)?.nome ?? sku;
+    return {
+      pecas, motorizadas, sugestao, atual, nome,
+      igual: chave(atual) === chave(sugestao.map((x) => ({ sku: x.sku, quantidade: x.quantidade }))),
+    };
+  }
+  /** Põe os controles sugeridos nas primeiras persianas motorizadas do ambiente; as outras ficam sem. */
+  function aplicarSugestaoControles(amb: string) {
+    const info = controlesDoAmbiente(doc!.itens.filter((i) => i.ambiente === amb));
+    if (!info) return;
+    const fila = info.sugestao.flatMap((x) => [{ sku: x.sku, quantidade: x.quantidade }]);
+    let n = 0;
+    const itens = doc!.itens.map((i) => {
+      if (!info.motorizadas.some((m) => m.id === i.id)) return i;
+      const e = i.entrada as EntradaPersiana;
+      const c = fila[n++];
+      return { ...i, entrada: { ...e, qtdControles: c?.quantidade ?? 0, skus: { ...e.skus, ...(c ? { controle: c.sku } : {}) } } };
+    });
+    aplicar({ ...doc!, itens }, { mensagem: 'Controles remotos ajustados.' });
+  }
+
   function removerItem(item: Item) {
     aplicar({ ...doc!, itens: doc!.itens.filter((i) => i.id !== item.id) }, { mensagem: 'Item removido.' });
   }
@@ -198,6 +233,22 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
                 <h3 className="font-semibold">{amb}</h3>
                 {editavel && <Button size="sm" variant="ghost" onClick={() => { setAmbienteNovo(amb); setForm('novo'); }}>+ item em {amb}</Button>}
               </div>
+              {(() => {
+                const c = controlesDoAmbiente(itens);
+                if (!c) return null;
+                const txt = (l: { sku: string; quantidade: number }[]) => (l.length ? l.map((x) => `${x.quantidade}x ${c.nome(x.sku)}`).join(' + ') : 'nenhum');
+                return (
+                  <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs">
+                    <span>{c.pecas} peça(s) motorizada(s) · controles: {txt(c.atual)}</span>
+                    {!c.igual && c.sugestao.length > 0 && (
+                      <>
+                        <span className="text-muted-foreground">Sugestão: {txt(c.sugestao)}</span>
+                        {editavel && <Button size="sm" variant="outline" onClick={() => aplicarSugestaoControles(amb)}>Usar sugestão</Button>}
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
               {itens.map((i) => (
                 <div key={i.id} className="rounded-md border p-3">
                   {form === i.id ? (
@@ -305,9 +356,9 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
               </div>
               <Campo nome="parcelas" rotulo="Parcelas" valor={String(doc.condicoes.parcelas)} tipo="number" />
               <Campo nome="validadeAte" rotulo="Validade" valor={doc.condicoes.validadeAte} tipo="date" />
-              <Campo nome="prazoEntregaDias" rotulo="Prazo de entrega (dias)" valor={doc.condicoes.prazoEntregaDias == null ? '' : String(doc.condicoes.prazoEntregaDias)} tipo="number" />
+              <Campo nome="prazoEntregaDias" rotulo="Prazo de entrega (dias úteis)" valor={doc.condicoes.prazoEntregaDias == null ? '' : String(doc.condicoes.prazoEntregaDias)} tipo="number" />
               <Campo nome="condicoesPagamentoTexto" rotulo="Condições de pagamento (texto)" valor={doc.condicoes.condicoesPagamentoTexto} largo dica="Ex.: 50% de sinal e 50% na instalação" />
-              <Campo nome="garantiaTexto" rotulo="Garantia" valor={doc.condicoes.garantiaTexto} largo dica="Em branco: 12 meses contra defeitos de fabricação e instalação" />
+              <Campo nome="garantiaTexto" rotulo="Garantia" valor={doc.condicoes.garantiaTexto} largo dica="Em branco: prazo por item (12 meses; rolo, double vision e painel 2 anos; motor 5 anos)" />
               <Area nome="observacoesCliente" rotulo="Observações para o cliente (vão no PDF)" valor={doc.condicoes.observacoesCliente} />
               <Area nome="observacoesInternas" rotulo="Observações internas (não vão no PDF)" valor={doc.condicoes.observacoesInternas} />
               <label className="flex items-center gap-2 text-sm sm:col-span-2">

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  calcularItem, catalogoSeed, checarLiberacao, d, descricaoComercial, ratearDesconto, totalizarOrcamento,
+  calcularItem, catalogoSeed, checarLiberacao, d, descricaoComercial, garantiaDoItem, garantiaMesesProduto, ratearDesconto,
+  sugerirControles, textoGarantia, totalizarOrcamento,
   type EntradaItem,
 } from '../src/index.js';
 
@@ -125,5 +126,42 @@ describe('ratearDesconto', () => {
     const soma = r.reduce((s, i) => s.plus(i.descontoRateado), d(0));
     expect(soma.toFixed(2)).toBe('10.00');
     expect(r[1]!.componentes[0]!.precoTotalLiquido.toFixed(2)).toBe('193.33');
+  });
+});
+
+describe('decisões do Gabriel (27/11/2026)', () => {
+  it('fator padrão: wave 2,8, prega macho 3,0, franzido 2,5, forro 1,8', () => {
+    const base = { larguraTrilho: '2.00', alturaPronta: '2.50', numFolhas: 2 as const, tecido: { sku: 'TEC-001' }, skus: { trilho: 'TRI-001' } };
+    const fator = (confeccao: 'WAVE' | 'PREGA' | 'FRANZIDO') =>
+      calcularItem({ tipo: 'CORTINA', entrada: { ...base, confeccao, forro: { sku: 'TEC-002' } } }, [], catalogoSeed).especificacaoTecnica as { tecido: { fator: string }; forro: { fator: string } };
+    expect(fator('WAVE').tecido.fator).toBe('2.8');
+    expect(fator('PREGA').tecido.fator).toBe('3');
+    expect(fator('FRANZIDO').tecido.fator).toBe('2.5');
+    expect(fator('FRANZIDO').forro.fator).toBe('1.8');
+    const r = calcularItem({ tipo: 'CORTINA', entrada: { ...base, confeccao: 'FRANZIDO' } }, [], catalogoSeed);
+    expect(r.componentes.some((c) => c.sku === 'DES-003')).toBe(false); // sem fita wave
+    expect(r.componentes.some((c) => c.sku === 'DES-002')).toBe(true);
+  });
+
+  it('garantia: padrão 12 meses, rolo/double vision/painel 2 anos, motor 5 anos', () => {
+    expect(garantiaMesesProduto({ nome: 'Linho Sintetico Gaze', metadata: {} })).toBe(12);
+    expect(garantiaMesesProduto({ nome: 'Persiana Rolo Blackout 100%', metadata: {} })).toBe(24);
+    expect(garantiaMesesProduto({ nome: 'Persiana Double Vision', metadata: {} })).toBe(24);
+    expect(garantiaMesesProduto({ nome: 'Persiana Painel Japonês', metadata: {} })).toBe(24);
+    expect(garantiaMesesProduto({ nome: 'Motor Tubular X', metadata: {} })).toBe(60);
+    expect(garantiaMesesProduto({ nome: 'Qualquer', metadata: { garantia_meses: 36 } })).toBe(36);
+    const g = garantiaDoItem(calcularItem(persiana, [], catalogoSeed).componentes.map((c) => c.sku), catalogoSeed);
+    expect(g).toEqual({ meses: 24, motorMeses: 60 });
+    expect(textoGarantia(g)).toBe('2 anos; motor 5 anos');
+    expect(textoGarantia(garantiaDoItem(['TEC-001'], catalogoSeed))).toBe('12 meses');
+  });
+
+  it('controle: menor que cubra as peças (1, 6 ou 16 canais)', () => {
+    const op = [{ sku: 'C1', canais: 1 }, { sku: 'C6', canais: 6 }, { sku: 'C16', canais: 16 }];
+    expect(sugerirControles(1, op)).toEqual([{ sku: 'C1', canais: 1, quantidade: 1 }]);
+    expect(sugerirControles(2, op)).toEqual([{ sku: 'C6', canais: 6, quantidade: 1 }]);
+    expect(sugerirControles(7, op)).toEqual([{ sku: 'C16', canais: 16, quantidade: 1 }]);
+    expect(sugerirControles(18, op)).toEqual([{ sku: 'C16', canais: 16, quantidade: 1 }, { sku: 'C6', canais: 6, quantidade: 1 }]);
+    expect(sugerirControles(0, op)).toEqual([]);
   });
 });

@@ -141,6 +141,12 @@ pelo app offline) e `api/src/orcamentos/`.
 - **Status**: Rascunho → Enviado → Aguardando medição → Em negociação; Perdido (com motivo) a qualquer momento.
   Aprovar e virar pedido fica para a próxima etapa.
 
-Suposições (a confirmar com o Gabriel; todas editáveis em `parametros_sistema` ou no próprio orçamento):
-validade da proposta 15 dias, prazo de entrega 30 dias, garantia 12 meses, fator padrão 2,5 (tecido) e
-2,0 (forro), 1 controle remoto por ambiente (as outras persianas motorizadas do ambiente vêm com 0).
+Decididos pelo Gabriel em 27/11/2026 (editáveis em `parametros_sistema` ou no próprio orçamento):
+- Validade da proposta: 15 dias.
+- Prazo de entrega: 14 dias úteis (12 úteis + 2, sem contar sábado e domingo).
+- Garantia por item, no PDF: 12 meses; persiana rolo, double vision e painel 2 anos; motor 5 anos
+  (`metadata.garantia_meses` no produto sobrepõe a regra pelo nome).
+- Fator de franzimento padrão: wave 2,8; prega macho 3,0; franzido 2,5; forro 1,8. O vendedor pode mudar no item.
+- Controle remoto: 1, 6 ou 16 canais (1 canal = 1 peça). O editor soma as peças motorizadas do ambiente e
+  sugere o menor controle que cobre todas (acima de 16, vários de 16 + o menor que cobre o resto);
+  o vendedor aplica com "Usar sugestão" ou escolhe à mão. Proposta, a confirmar com o Gabriel.

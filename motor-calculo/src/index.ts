@@ -10,6 +10,8 @@ export {
   decomporBarras,
   type BarraTrilho,
   SKUS_CORTINA_PADRAO,
+  FATOR_PADRAO,
+  FATOR_FORRO_PADRAO,
   type EntradaCortina,
   type CamadaTecido,
   type CamadaForro,
@@ -33,7 +35,8 @@ export { lerPrecosBarraCSV, aplicarPrecosBarra, normalizarNumero, type LinhaPrec
 export { carregarCatalogo, CAMINHO_PRECOS_BARRA } from './carregar.js';
 export { precoVendaSugerido, semaforoMargem, MARKUP_PADRAO_PCT, LIMITES_SEMAFORO_PADRAO, type CorSemaforo, type LimitesSemaforo } from './precificacao.js';
 export {
-  calcularItem, aplicarAjustes, descricaoComercial, ratear, ratearDesconto, totalizarOrcamento, checarLiberacao,
+  calcularItem, aplicarAjustes, descricaoComercial, garantiaMesesProduto, garantiaDoItem, textoGarantia, sugerirControles,
+  type GarantiaItem, type OpcaoControle, ratear, ratearDesconto, totalizarOrcamento, checarLiberacao,
   type EntradaItem, type Ajuste, type ComponenteItem, type ResultadoItem, type LinhaParaRateio,
   type CondicoesOrcamento, type ParametrosMargem, type TotaisOrcamento, type ChecagemLiberacao,
 } from './configurador.js';

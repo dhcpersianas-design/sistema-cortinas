@@ -3,12 +3,21 @@ import { componente, f2, fecharResultado, metaBool, metaNum, metaStr } from './c
 import type { Alerta, Catalogo, ComponenteCalculado, Produto, ResultadoCalculo } from './tipos.js';
 
 export type ModoCorte = 'HORIZONTAL' | 'VERTICAL_TIRAS';
-export type TipoConfeccao = 'WAVE' | 'PREGA';
+/** PREGA = prega macho. FRANZIDO usa deslizantes comuns, como a prega (sem fita wave). */
+export type TipoConfeccao = 'WAVE' | 'PREGA' | 'FRANZIDO';
+
+/**
+ * Fator de franzimento padrão (Gabriel, 27/11/2026): tecido principal wave 2,8,
+ * prega macho 3,0, franzido 2,5; tecido secundário (forro) franzido 1,8.
+ * Vale quando o vendedor não informa o fator.
+ */
+export const FATOR_PADRAO: Record<TipoConfeccao, string> = { WAVE: '2.8', PREGA: '3.0', FRANZIDO: '2.5' };
+export const FATOR_FORRO_PADRAO = '1.8';
 
 export interface CamadaTecido {
   sku: string;
-  /** Fator de franzimento (ex.: 2.5). */
-  fator: Numerico;
+  /** Fator de franzimento (ex.: 2.5). Em branco: FATOR_PADRAO da confecção (forro: 1,8). */
+  fator?: Numerico;
   /** Margem vertical cabeçote + barra. Padrão: 0.30 (principal) / 0.20 (forro). */
   margemBarra?: Numerico;
 }
@@ -153,7 +162,7 @@ export function calcularSuportesVarao(larguraTrilho: Decimal) {
 
 function validar(e: EntradaCortina) {
   if (e.numFolhas !== 1 && e.numFolhas !== 2) throw new ErroEntrada('numFolhas deve ser 1 ou 2');
-  if (e.confeccao !== 'WAVE' && e.confeccao !== 'PREGA') throw new ErroEntrada('confeccao deve ser WAVE ou PREGA');
+  if (!(e.confeccao in FATOR_PADRAO)) throw new ErroEntrada('confeccao deve ser WAVE, PREGA ou FRANZIDO');
 }
 
 export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): ResultadoCalculo {
@@ -176,7 +185,7 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
 
   // ---------- Passo A: tecido principal ----------
   const pTecido = catalogo.obter(e.tecido.sku);
-  const fTecido = positivo('tecido.fator', e.tecido.fator);
+  const fTecido = positivo('tecido.fator', e.tecido.fator ?? FATOR_PADRAO[e.confeccao]);
   const tec = calcularTecidoML({
     larguraTrilho: L,
     alturaPronta: H,
@@ -199,7 +208,7 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
     forro = calcularTecidoML({
       larguraTrilho: L,
       alturaPronta: H,
-      fator: positivo('forro.fator', e.forro.fator),
+      fator: positivo('forro.fator', e.forro.fator ?? FATOR_FORRO_PADRAO),
       numFolhas: N,
       larguraRolo: metaNum(pForro, 'largura_rolo'),
       permiteCorteHorizontal: metaBool(pForro, 'permite_corte_horizontal', false),
@@ -275,7 +284,7 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
   }
   const pComum = catalogo.obter(skus.deslizanteComum);
   const upmComum = metaNum(pComum, 'un_por_metro', 10);
-  const camadasComum = (e.confeccao === 'PREGA' ? 1 : 0) + (forro ? 1 : 0);
+  const camadasComum = (e.confeccao !== 'WAVE' ? 1 : 0) + (forro ? 1 : 0);
   if (camadasComum > 0 && !ehVarao) {
     const porCamada = L.mul(upmComum).ceil();
     const total = porCamada.mul(camadasComum);
@@ -341,7 +350,7 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
     confeccao: e.confeccao,
     trilho: { sku: trilho.sku, vias: vias.toNumber(), varao: ehVarao, barras: barras.map((b) => ({ tamanhoM: f2(b.tamanho), quantidade: b.quantidade.toNumber() })) },
     tecido: fichaCorte(pTecido, fTecido, tec),
-    forro: forro && e.forro ? fichaCorte(catalogo.obter(e.forro.sku), d(e.forro.fator), forro) : undefined,
+    forro: forro && e.forro ? fichaCorte(catalogo.obter(e.forro.sku), d(e.forro.fator ?? FATOR_FORRO_PADRAO), forro) : undefined,
   });
 }
 

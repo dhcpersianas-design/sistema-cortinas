@@ -1,8 +1,8 @@
 import PDFDocument from 'pdfkit';
 import { sql } from 'drizzle-orm';
-import { d } from '@sistema/motor-calculo';
+import { d, garantiaDoItem, textoGarantia, type GarantiaItem } from '@sistema/motor-calculo';
+import { carregarCatalogoDoBanco } from '../catalogo/catalogo-banco.js';
 import type { Banco } from '../db/conexao.js';
-import { parametro } from '../catalogo/parametros.js';
 import { formatarTelefone } from '../cadastros/validacao.js';
 import { lerDocumento } from './servico.js';
 
@@ -36,7 +36,7 @@ export type DadosProposta = {
   codigo: string; versao: number; data: string; validadeAte: string; titulo: string | null; rascunho: boolean;
   cliente: { nome: string; telefone: string; endereco: string };
   vendedor: string;
-  ambientes: { nome: string; itens: { descricao: string; medidas: string; valor: string; componentes?: { descricao: string; quantidade: string }[] }[]; subtotal: string }[];
+  ambientes: { nome: string; itens: { descricao: string; medidas: string; valor: string; garantia: string; componentes?: { descricao: string; quantidade: string }[] }[]; subtotal: string }[];
   subtotal: string; desconto: string | null; acrescimo: string | null; total: string;
   condicoesPagamento: string; prazoEntrega: string | null; garantia: string; observacoes: string | null;
   avisoConferencia: boolean;
@@ -49,7 +49,14 @@ export async function montarProposta(db: Banco, id: string, detalhar: boolean): 
   const [loja] = (await db.execute(sql`SELECT nome, cnpj FROM lojas WHERE id = ${c.lojaId}`)).rows as { nome: string; cnpj: string | null }[];
   const [cli] = (await db.execute(sql`SELECT CONCAT_WS(', ', NULLIF(CONCAT_WS(' ', logradouro, numero), ''), complemento, bairro,
       NULLIF(CONCAT_WS(' - ', cidade, uf), '')) AS endereco FROM clientes WHERE id = ${c.clienteId}`)).rows as { endereco: string | null }[];
-  const garantiaMeses = String(Math.round(Number((await parametro(db, c.lojaId, 'GARANTIA_MESES')) ?? 12)));
+  // Garantia por item: a gravada no item (snapshot); orçamento antigo sem ela usa o catálogo de hoje.
+  let catalogo: Awaited<ReturnType<typeof carregarCatalogoDoBanco>>['catalogo'] | null = null;
+  const garantia = async (i: (typeof itens)[number]) => {
+    const g = (i.especificacaoTecnica as { garantia?: GarantiaItem }).garantia;
+    if (g) return textoGarantia(g);
+    catalogo ??= (await carregarCatalogoDoBanco(db)).catalogo;
+    return textoGarantia(garantiaDoItem(i.componentes.map((x) => x.sku), catalogo));
+  };
 
   const grupos = new Map<string, DadosProposta['ambientes'][number]>();
   for (const i of itens) {
@@ -58,6 +65,7 @@ export async function montarProposta(db: Banco, id: string, detalhar: boolean): 
       descricao: i.descricaoComercial,
       medidas: `${metros(i.larguraProducao)} x ${metros(i.alturaProducao)}`,
       valor: dinheiroBR(i.vendaTotal),
+      garantia: await garantia(i),
       ...(detalhar ? { componentes: i.componentes.map((x) => ({ descricao: x.descricao, quantidade: `${qtd(x.quantidade, x.unidade)} ${x.unidade}` })) } : {}),
     });
     g.subtotal = d(g.subtotal).plus(d(i.vendaTotal)).toFixed(2);
@@ -78,8 +86,9 @@ export async function montarProposta(db: Banco, id: string, detalhar: boolean): 
     acrescimo: d(c.acrescimo).gt(0) ? dinheiroBR(c.acrescimo) : null,
     total: dinheiroBR(c.total),
     condicoesPagamento: condicoes,
-    prazoEntrega: c.prazoEntregaDias != null ? `${c.prazoEntregaDias} dias após a confirmação do pedido e da medição` : null,
-    garantia: c.garantiaTexto || `${garantiaMeses} meses contra defeitos de fabricação e instalação.`,
+    prazoEntrega: c.prazoEntregaDias != null
+      ? `${c.prazoEntregaDias} dias úteis (sem contar sábado e domingo) após a confirmação do pedido e da medição.` : null,
+    garantia: c.garantiaTexto || 'Contra defeitos de fabricação e instalação, no prazo indicado em cada item.',
     observacoes: c.observacoesCliente,
     avisoConferencia: !c.medidasConferidas,
   };
@@ -132,7 +141,7 @@ export function gerarPdf(p: DadosProposta, opcoes: { comprimir?: boolean } = {})
         const yFim = doc.y;
         doc.font('Helvetica-Bold').text(i.valor, x0 + largura - colValor, y, { width: colValor, align: 'right' });
         doc.y = Math.max(yFim, doc.y);
-        doc.font('Helvetica').fontSize(9).fillColor(cinza).text(`Medidas: ${i.medidas}`, x0 + 18);
+        doc.font('Helvetica').fontSize(9).fillColor(cinza).text(`Medidas: ${i.medidas}    Garantia: ${i.garantia}`, x0 + 18);
         if (i.componentes?.length) {
           for (const c of i.componentes) { quebra(14); doc.text(`• ${c.descricao}: ${c.quantidade}`, x0 + 28); }
         }

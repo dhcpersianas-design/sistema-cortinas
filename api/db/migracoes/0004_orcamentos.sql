@@ -31,7 +31,7 @@ ALTER TABLE orcamentos
   ADD COLUMN liberado_margem_pct     NUMERIC(6,2),
   ADD COLUMN liberado_desconto_pct   NUMERIC(5,2),
   -- Proposta
-  ADD COLUMN prazo_entrega_dias      INT,
+  ADD COLUMN prazo_entrega_dias      INT,                     -- em DIAS ÚTEIS (sem sábado e domingo)
   ADD COLUMN garantia_texto          VARCHAR(300),
   ADD COLUMN condicoes_pagamento_texto VARCHAR(300),
   ADD COLUMN medidas_conferidas      BOOLEAN NOT NULL DEFAULT FALSE, -- false = PDF com aviso de conferência técnica
@@ -106,9 +106,11 @@ CREATE TABLE orcamento_links_publicos (
 CREATE INDEX idx_links_orcamento ON orcamento_links_publicos (orcamento_id);
 
 -- PARÂMETROS da proposta (valores iniciais; o ADMIN ajusta).
--- [orçamento] SUPOSIÇÃO: validade 15 dias, prazo 30 dias e garantia 12 meses até a loja informar os reais.
+-- Decisões do Gabriel (27/11/2026): validade 15 dias; prazo de entrega 12 dias úteis + 2 = 14 dias úteis
+-- (sem sábado e domingo); garantia padrão 12 meses (rolo/double vision/painel 24 e motor 60 meses,
+-- regra no motor de cálculo, ou `garantia_meses` na metadata do produto).
 INSERT INTO parametros_sistema (loja_id, chave, valor, vigente_desde) VALUES
   ('00000000-0000-0000-0000-000000000001', 'VALIDADE_ORCAMENTO_DIAS', 15, '2026-01-01'),
-  ('00000000-0000-0000-0000-000000000001', 'PRAZO_ENTREGA_PADRAO_DIAS', 30, '2026-01-01'),
+  ('00000000-0000-0000-0000-000000000001', 'PRAZO_ENTREGA_DIAS_UTEIS', 14, '2026-01-01'),
   ('00000000-0000-0000-0000-000000000001', 'GARANTIA_MESES', 12, '2026-01-01')
 ON CONFLICT DO NOTHING;

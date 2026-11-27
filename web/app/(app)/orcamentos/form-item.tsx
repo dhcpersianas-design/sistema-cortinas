@@ -42,6 +42,7 @@ type Props = {
 export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temControleNoAmbiente, onSalvar, onCancelar }: Props) {
   const e = (inicial?.entrada ?? {}) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
   const [tipo, setTipo] = useState<'CORTINA' | 'PERSIANA'>(inicial?.tipo ?? 'CORTINA');
+  const [confeccao, setConfeccao] = useState<string>(e.confeccao ?? 'WAVE');
   const [unidade, setUnidade] = useState<Unidade>('m');
   const [erro, setErro] = useState<string | null>(null);
   const [confirmar, setConfirmar] = useState<string | null>(null);
@@ -53,6 +54,8 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
       forros: m(/^tecido/i).filter((p) => Boolean(p.metadata?.eh_forro)),
       trilhos: m(/^trilho/i),
       persianas: m(/^persiana/i),
+      maoObra: m(/^m[aã]o de obra/i),
+      controles: produtos.filter((p) => Number(p.metadata?.canais) > 0).sort((a, b) => Number(a.metadata.canais) - Number(b.metadata.canais)),
     };
   }, [produtos]);
 
@@ -81,9 +84,10 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
           alturaPronta: medida('altura', 'Altura pronta', LIM.altura),
           numFolhas: Number(s('numFolhas')) as 1 | 2,
           confeccao: s('confeccao'),
-          tecido: { sku: s('tecido'), fator: s('fator').replace(',', '.') || '2.5' },
-          ...(forro ? { forro: { sku: forro, fator: s('fatorForro').replace(',', '.') || '2.0' } } : {}),
-          skus: { trilho: s('trilho') },
+          // Fator em branco = padrão do motor (wave 2,8; prega macho 3,0; franzido 2,5; forro 1,8).
+          tecido: { sku: s('tecido'), ...(s('fator') ? { fator: s('fator').replace(',', '.') } : {}) },
+          ...(forro ? { forro: { sku: forro, ...(s('fatorForro') ? { fator: s('fatorForro').replace(',', '.') } : {}) } } : {}),
+          skus: { trilho: s('trilho'), ...(s('maoObra') ? { maoObraTecido: s('maoObra') } : {}) },
         };
       } else {
         const modo = s('modoMedida');
@@ -95,7 +99,10 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
           medida: modo === 'PRODUCAO' ? { tipo: 'PRODUCAO', largura: larg, altura: alt } : { tipo: 'VAO_BRUTO', modo, largura: larg, altura: alt },
           acionamento: s('acionamento'), ladoComando: s('ladoComando'), sentidoEnrolamento: s('sentidoEnrolamento'),
           possuiBando: f.get('possuiBando') === 'on', possuiGuiaLateral: f.get('possuiGuiaLateral') === 'on',
-          ...(motor ? { qtdControles: inteiro(s('qtdControles'), 'Controles remotos'), qtdHubs: inteiro(s('qtdHubs'), 'Hub Wi-Fi') } : {}),
+          ...(motor ? {
+            qtdControles: s('controle') ? 1 : 0, qtdHubs: inteiro(s('qtdHubs'), 'Hub Wi-Fi'),
+            ...(s('controle') ? { skus: { controle: s('controle') } } : {}),
+          } : {}),
         };
       }
       const mudouEntrada = JSON.stringify(entrada) !== JSON.stringify(inicial?.entrada);
@@ -111,7 +118,11 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
 
   const medidaRotulo = unidade === 'm' ? 'm' : 'cm';
   const ambienteInicial = inicial?.ambiente ?? ambienteSugerido ?? '';
-  const controlePadrao = (inicial && e.qtdControles != null) ? e.qtdControles : (temControleNoAmbiente(ambienteInicial, inicial?.id) ? 0 : 1);
+  // Cada canal aciona 1 peça. Padrão: o menor controle, só na primeira persiana motorizada do ambiente;
+  // com várias, o configurador sugere um controle com canais para todas (botão no ambiente).
+  const controlePadrao = inicial?.tipo === 'PERSIANA' && e.acionamento === 'MOTORIZADO'
+    ? ((e.qtdControles ?? 1) > 0 ? (e.skus?.controle ?? 'MOT-002') : '')
+    : (temControleNoAmbiente(ambienteInicial, inicial?.id) ? '' : (porCategoria.controles[0]?.sku ?? ''));
 
   return (
     <form onSubmit={salvar} className="grid gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2">
@@ -148,12 +159,23 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
         <>
           <CampoMedida nome="largura" rotulo={`Largura do trilho (${medidaRotulo})`} valor={deMetros(e.larguraTrilho, unidade)} key={`l${unidade}`} />
           <CampoMedida nome="altura" rotulo={`Altura pronta (${medidaRotulo})`} valor={deMetros(e.alturaPronta, unidade)} key={`a${unidade}`} dica="Já descontado 1 a 2 cm do piso" />
-          <Selecao nome="confeccao" rotulo="Confecção" valor={e.confeccao ?? 'WAVE'} opcoes={[['WAVE', 'Wave'], ['PREGA', 'Prega']]} />
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="confeccao">Confecção</Label>
+            <select id="confeccao" name="confeccao" value={confeccao} onChange={(ev) => setConfeccao(ev.target.value)} className={classeSelect}>
+              <option value="WAVE">Wave</option><option value="PREGA">Prega macho</option><option value="FRANZIDO">Franzido</option>
+            </select>
+          </div>
           <Selecao nome="numFolhas" rotulo="Folhas" valor={String(e.numFolhas ?? 2)} opcoes={[['2', '2 folhas'], ['1', '1 folha']]} />
           <Selecao nome="tecido" rotulo="Tecido" valor={e.tecido?.sku} opcoes={porCategoria.tecidos.map((p) => [p.sku, `${p.nome} (${p.sku})`])} />
-          <CampoTexto nome="fator" rotulo="Fator de franzimento" valor={String(e.tecido?.fator ?? '2.5').replace('.', ',')} dica="Wave costuma usar 2,5" />
+          <CampoTexto nome="fator" rotulo="Fator de franzimento" valor={e.tecido?.fator ? String(e.tecido.fator).replace('.', ',') : ''}
+            dica={`Em branco: ${{ WAVE: '2,8', PREGA: '3,0', FRANZIDO: '2,5' }[confeccao] ?? ''} (padrão da loja)`} />
           <Selecao nome="forro" rotulo="Forro" valor={e.forro?.sku ?? ''} opcoes={[['', 'Sem forro'], ...porCategoria.forros.map((p) => [p.sku, `${p.nome} (${p.sku})`] as [string, string])]} />
-          <CampoTexto nome="fatorForro" rotulo="Fator do forro" valor={String(e.forro?.fator ?? '2.0').replace('.', ',')} />
+          <CampoTexto nome="fatorForro" rotulo="Fator do forro" valor={e.forro?.fator ? String(e.forro.fator).replace('.', ',') : ''} dica="Em branco: 1,8 (padrão da loja)" />
+          {porCategoria.maoObra.length > 0 && (
+            <Selecao key={`mdo-${confeccao}`} nome="maoObra" rotulo="Mão de obra da confecção" largo
+              valor={e.skus?.maoObraTecido && e.confeccao === confeccao ? e.skus.maoObraTecido : (confeccao === 'WAVE' ? 'MDO-001' : porCategoria.maoObra.find((p) => /prega/i.test(p.nome))?.sku)}
+              opcoes={porCategoria.maoObra.map((p) => [p.sku, `${p.nome} (${p.sku})`])} />
+          )}
           <Selecao nome="trilho" rotulo="Trilho / varão" valor={e.skus?.trilho} opcoes={porCategoria.trilhos.map((p) => [p.sku, `${p.nome} (${p.sku})${p.tabelaBarrasCompleta ? ' · por barra' : ''}`])} largo />
         </>
       ) : (
@@ -166,8 +188,8 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
           <Selecao nome="acionamento" rotulo="Acionamento" valor={e.acionamento ?? 'MANUAL'} opcoes={[['MANUAL', 'Manual'], ['MOTORIZADO', 'Motorizado']]} />
           <Selecao nome="ladoComando" rotulo="Lado do comando" valor={e.ladoComando ?? 'DIREITO'} opcoes={[['DIREITO', 'Direito'], ['ESQUERDO', 'Esquerdo']]} />
           <Selecao nome="sentidoEnrolamento" rotulo="Enrolamento" valor={e.sentidoEnrolamento ?? 'NORMAL'} opcoes={[['NORMAL', 'Normal'], ['REVERSO', 'Reverso']]} />
-          <CampoTexto nome="qtdControles" rotulo="Controles remotos (se motorizada)" valor={String(controlePadrao)}
-            dica="1 controle comanda várias persianas do ambiente" />
+          <Selecao nome="controle" rotulo="Controle remoto (se motorizada)" valor={controlePadrao}
+            opcoes={[['', 'Sem controle neste item (usa o de outra persiana)'], ...porCategoria.controles.map((p) => [p.sku, `${p.nome} (${p.metadata.canais} canal/is)`] as [string, string])]} />
           <CampoTexto nome="qtdHubs" rotulo="Hub Wi-Fi (se motorizada)" valor={String(e.qtdHubs ?? 0)} />
           <div className="flex flex-wrap gap-4 sm:col-span-2">
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="possuiBando" defaultChecked={Boolean(e.possuiBando)} /> Bandô</label>

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { sql, type SQL } from 'drizzle-orm';
 import {
-  calcularItem, checarLiberacao, d, descricaoComercial, ErroEntrada, LIMITES_SEMAFORO_PADRAO, ratearDesconto, totalizarOrcamento,
+  calcularItem, checarLiberacao, d, descricaoComercial, garantiaDoItem, ErroEntrada, LIMITES_SEMAFORO_PADRAO, ratearDesconto, totalizarOrcamento,
   type Ajuste, type Catalogo, type EntradaItem,
 } from '@sistema/motor-calculo';
 import type { Banco } from '../db/conexao.js';
@@ -417,7 +417,7 @@ export async function salvarDocumento(db: Banco, u: UsuarioSessao, id: string, e
       if (!pode(u, 'orcamentos.proprios')) throw new ErroOrcamento('Seu perfil não cria orçamentos.', 403);
       if (!(await clienteDoEscopo(tx, u, e.clienteId))) throw new ErroOrcamento('Cliente não encontrado ou de outro vendedor.', 400);
       const validade = (await parametro(tx as unknown as Banco, u.lojaId, 'VALIDADE_ORCAMENTO_DIAS')) ?? '15';
-      const prazo = (await parametro(tx as unknown as Banco, u.lojaId, 'PRAZO_ENTREGA_PADRAO_DIAS')) ?? '30';
+      const prazo = (await parametro(tx as unknown as Banco, u.lojaId, 'PRAZO_ENTREGA_DIAS_UTEIS')) ?? '14';
       await tx.execute(sql`
         INSERT INTO orcamentos (id, grupo_id, loja_id, codigo_sequencial, versao, cliente_id, vendedor_id, criado_por_id,
           validade_ate, prazo_entrega_dias)
@@ -494,7 +494,9 @@ export async function salvarDocumento(db: Banco, u: UsuarioSessao, id: string, e
         larguraBruta: r.larguraBruta ? f(r.larguraBruta, 4) : null, alturaBruta: r.alturaBruta ? f(r.alturaBruta, 4) : null,
         larguraProducao: f(r.larguraProducao, 4), alturaProducao: f(r.alturaProducao, 4),
         entrada: item.entrada as Record<string, unknown>, ajustes: item.ajustes as Ajuste[],
-        alertas: r.alertas, especificacaoTecnica: r.especificacaoTecnica,
+        alertas: r.alertas,
+        // Garantia congelada no item (vai para o PDF): regra do Gabriel, 27/11/2026.
+        especificacaoTecnica: { ...r.especificacaoTecnica, garantia: garantiaDoItem(r.componentes.map((c) => c.sku), await cat()) },
         custoTotal: f(r.custoTotal, 2), vendaTotal: f(r.vendaTotal, 2),
       }, r.componentes.map((c) => ({
         sku: c.sku, descricao: c.descricao, unidade: c.unidade,

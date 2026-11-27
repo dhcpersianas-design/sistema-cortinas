@@ -23,13 +23,13 @@ const medidaOuLista = (m: typeof largura) => z.union([m, z.array(m).min(1).max(3
 const sku = z.string().trim().toUpperCase().min(2).max(30);
 const textoCurto = (max: number) => z.string().trim().max(max);
 
-const camada = z.object({ sku, fator: num, margemBarra: num.optional() });
+const camada = z.object({ sku, fator: num.optional(), margemBarra: num.optional() });
 
 export const entradaCortina = z.object({
   larguraTrilho: largura,
   alturaPronta: altura,
   numFolhas: z.union([z.literal(1), z.literal(2)]),
-  confeccao: z.enum(['WAVE', 'PREGA']),
+  confeccao: z.enum(['WAVE', 'PREGA', 'FRANZIDO']),
   tecido: camada,
   forro: camada.extend({ desconto: num.optional() }).optional(),
   skus: z.record(z.string(), sku).optional(),

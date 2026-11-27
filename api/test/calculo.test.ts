@@ -87,7 +87,7 @@ describe('motor de cálculo com o catálogo do banco', () => {
 describe('catálogo', () => {
   it('vendedor vê preço de venda, sem custo', async () => {
     const r = (await app.inject({ method: 'GET', url: '/api/catalogo/produtos', headers: { cookie: await entrar(app, 'vendedor@loja.com') } })).json();
-    expect(r.produtos).toHaveLength(29);
+    expect(r.produtos).toHaveLength(32);
     expect(r.produtos[0]).toHaveProperty('precoVendaUnitario');
     expect(r.produtos[0]).not.toHaveProperty('custoUnitario');
   });
