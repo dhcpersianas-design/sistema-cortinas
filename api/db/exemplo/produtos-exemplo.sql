@@ -22,14 +22,14 @@ INSERT INTO produtos (sku, categoria_id, nome, unidade_medida, custo_unitario, p
   ('MDO-001', 5, 'Confeccao Cortina Wave',         'ML',  22.00,   55.00, '{"base": "ML_TECIDO", "fator_pe_direito_alto": 1.30}'),
   ('MDO-002', 5, 'Confeccao Forro Simples/Wave',   'ML',  16.00,   40.00, '{"base": "ML_TECIDO", "fator_pe_direito_alto": 1.25}'),
   ('MDO-003', 5, 'Confeccao Prega Macho/Americana','ML',  25.00,   62.00, '{"base": "ML_TECIDO", "fator_pe_direito_alto": 1.30}'),
-  -- 6. Persianas Sob Medida
-  ('PER-001', 6, 'Persiana Rolo Tela Solar 3%',    'M2', 135.00,  320.00, '{"larg_min": 0.00, "alt_min": 1.20, "area_min": 1.50, "larg_max": 2.80}'),
-  ('PER-002', 6, 'Persiana Rolo Blackout 100%',    'M2', 145.00,  345.00, '{"larg_min": 0.00, "alt_min": 1.20, "area_min": 1.50, "larg_max": 2.60}'),
-  ('PER-003', 6, 'Persiana Double Vision',         'M2', 210.00,  490.00, '{"larg_min": 0.00, "alt_min": 1.20, "area_min": 1.50, "larg_max": 2.50}'),
-  -- 7. Acabamentos Persiana
-  ('ACP-001', 7, 'Bando Aluminio Pint. Eletrost.', 'ML',  52.00,  135.00, '{"min_ml": 1.00, "base": "LARGURA_PERSIANA"}'),
-  ('ACP-002', 7, 'Guia Lateral / Perfil U',        'ML',  38.00,   95.00, '{"base": "2X_ALTURA_PERSIANA"}'),
-  ('ACP-003', 7, 'Redutor de Peso / Mola Alivio',  'PC',  65.00,  160.00, '{"sugerir_largura_maior_m": 2.40}'),
+  -- Persianas › Rolo › Rolo (29) e › Double Vision (28)
+  ('PER-001', 29, 'Persiana Rolo Tela Solar 3%',    'M2', 135.00,  320.00, '{"larg_min": 0.00, "alt_min": 1.20, "area_min": 1.50, "larg_max": 2.80}'),
+  ('PER-002', 29, 'Persiana Rolo Blackout 100%',    'M2', 145.00,  345.00, '{"larg_min": 0.00, "alt_min": 1.20, "area_min": 1.50, "larg_max": 2.60}'),
+  ('PER-003', 28, 'Persiana Double Vision',         'M2', 210.00,  490.00, '{"larg_min": 0.00, "alt_min": 1.20, "area_min": 1.50, "larg_max": 2.50}'),
+  -- Acessórios Persianas › Peças e Acabamentos (31)
+  ('ACP-001', 31, 'Bando Aluminio Pint. Eletrost.', 'ML',  52.00,  135.00, '{"min_ml": 1.00, "base": "LARGURA_PERSIANA"}'),
+  ('ACP-002', 31, 'Guia Lateral / Perfil U',        'ML',  38.00,   95.00, '{"base": "2X_ALTURA_PERSIANA"}'),
+  ('ACP-003', 31, 'Redutor de Peso / Mola Alivio',  'PC',  65.00,  160.00, '{"sugerir_largura_maior_m": 2.40}'),
   -- 8. Motorizacao e Automacao
   ('MOT-001', 8, 'Motor Tubular X Bivolt RF 6Nm',  'PC', 480.00, 1150.00, '{"torque_nm": 6, "tubo_compat": ["38mm", "45mm"]}'),
   ('MOT-002', 8, 'Controle Remoto RF 5 Canais',    'PC',  75.00,  190.00, '{"canais": 5, "escopo": "AMBIENTE_OU_ORCAMENTO"}'),

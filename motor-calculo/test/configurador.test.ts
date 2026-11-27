@@ -146,6 +146,10 @@ describe('decisões do Gabriel (27/11/2026)', () => {
   it('garantia: padrão 12 meses, rolo/double vision/painel 2 anos, motor 5 anos', () => {
     expect(garantiaMesesProduto({ nome: 'Linho Sintetico Gaze', metadata: {} })).toBe(12);
     expect(garantiaMesesProduto({ nome: 'Persiana Rolo Blackout 100%', metadata: {} })).toBe(24);
+    // Com a categoria do catálogo (27/11/2026): vale a subcategoria mesmo sem "Persiana" no nome.
+    expect(garantiaMesesProduto({ nome: 'Tela Solar 3%', metadata: {}, categoria: 'Persianas › Rolo › Double Vision' })).toBe(24);
+    expect(garantiaMesesProduto({ nome: 'Tela Solar 3%', metadata: {}, categoria: 'Persianas › Painel' })).toBe(24);
+    expect(garantiaMesesProduto({ nome: 'Horizontal 25mm', metadata: {}, categoria: 'Persianas › Horizontal' })).toBe(12);
     expect(garantiaMesesProduto({ nome: 'Persiana Double Vision', metadata: {} })).toBe(24);
     expect(garantiaMesesProduto({ nome: 'Persiana Painel Japonês', metadata: {} })).toBe(24);
     expect(garantiaMesesProduto({ nome: 'Motor Tubular X', metadata: {} })).toBe(60);

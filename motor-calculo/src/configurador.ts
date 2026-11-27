@@ -340,13 +340,15 @@ export function checarLiberacao(t: Pick<TotaisOrcamento, 'semaforo' | 'descontoP
 /**
  * Garantia em meses (Gabriel, 27/11/2026): padrão 12 meses; Persiana Rolo, Double Vision e
  * Painel 24 meses; motores (cortina ou persiana) 60 meses. `garantia_meses` na metadata do
- * produto, quando preenchido, vale mais que a regra.
+ * produto, quando preenchido, vale mais que a regra. Com a categoria do catálogo
+ * (Persianas › Rolo..., Persianas › Painel), vale a subcategoria mesmo sem "Persiana" no nome.
  */
-export function garantiaMesesProduto(p: Pick<Produto, 'nome' | 'metadata'>): number {
+export function garantiaMesesProduto(p: Pick<Produto, 'nome' | 'metadata' | 'categoria'>): number {
   const m = p.metadata?.['garantia_meses'];
   if (m !== undefined && m !== null && m !== '' && Number.isFinite(Number(m))) return Math.round(Number(m));
   if (/motor/i.test(p.nome) || p.metadata?.['torque_nm'] !== undefined) return 60;
   if (/persiana/i.test(p.nome) && /(rolo|double vision|painel)/i.test(p.nome)) return 24;
+  if (/^persianas › (rolo|painel)\b/i.test(p.categoria ?? '')) return 24;
   return 12;
 }
 

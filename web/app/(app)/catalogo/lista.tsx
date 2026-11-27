@@ -11,6 +11,7 @@ import { semAcento } from '@/lib/texto';
 
 export type ProdutoLista = {
   id: string; sku: string; nome: string; corColecao: string | null; categoriaId: number; categoria: string; unidade: string;
+  categoriaPrincipalId?: number | null; categoriaPrincipal?: string; faltaSubcategoria?: boolean;
   custoUnitario?: string; precoVendaUnitario: string; ativo: boolean | null; fornecedorNome?: string | null;
   tabelaBarrasCompleta: boolean; barras: { tamanhoM: number; custo?: string; venda: string }[];
 };
@@ -31,19 +32,35 @@ export function ListaCatalogo({ verCusto, editar }: { verCusto: boolean; editar:
       .then((r) => setProdutos(r.produtos)).catch((e) => setErro((e as Error).message));
   }, [editar]);
 
-  const categorias = useMemo(() => [...new Map((produtos ?? []).map((p) => [p.categoriaId, p.categoria])).entries()], [produtos]);
+  // Filtro pelas categorias principais (Persianas, Tecidos...) e, dentro delas, pela subcategoria.
+  const categorias = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of [...(produtos ?? [])].sort((a, b) => a.categoria.localeCompare(b.categoria))) {
+      if (p.categoriaPrincipalId != null) m.set(`p${p.categoriaPrincipalId}`, p.categoriaPrincipal ?? '');
+    }
+    const principais = [...m.entries()];
+    const subs = [...new Map((produtos ?? []).filter((p) => p.categoria.includes('›')).map((p) => [`c${p.categoriaId}`, `   ${p.categoria}`])).entries()]
+      .sort((a, b) => a[1].localeCompare(b[1]));
+    return [...principais, ...subs];
+  }, [produtos]);
   const filtrados = useMemo(() => {
     const t = semAcento(q.trim());
     return (produtos ?? []).filter((p) => (inativos || p.ativo !== false)
-      && (!categoria || String(p.categoriaId) === categoria)
+      && (!categoria || `c${p.categoriaId}` === categoria || `p${p.categoriaPrincipalId}` === categoria)
       && (!t || semAcento(`${p.sku} ${p.nome} ${p.corColecao ?? ''}`).includes(t)));
   }, [produtos, q, categoria, inativos]);
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">Catálogo</h1>
-        {editar && <Button asChild><Link href="/catalogo/novo">Novo produto</Link></Button>}
+        {editar && (
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline"><Link href="/catalogo/categorias">Categorias e markup</Link></Button>
+            <Button asChild variant="outline"><Link href="/catalogo/importar">Importar preços</Link></Button>
+            <Button asChild><Link href="/catalogo/novo">Novo produto</Link></Button>
+          </div>
+        )}
       </div>
       <div className="grid gap-2 sm:grid-cols-[1fr_14rem_auto]">
         <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por SKU, nome ou cor" aria-label="Buscar produtos" />
@@ -81,7 +98,10 @@ export function ListaCatalogo({ verCusto, editar }: { verCusto: boolean; editar:
                       </Badge>
                     )}
                   </td>
-                  <td className="hidden px-3 py-2 text-muted-foreground sm:table-cell">{p.categoria}</td>
+                  <td className="hidden px-3 py-2 text-muted-foreground sm:table-cell">
+                    {p.categoria}
+                    {p.faltaSubcategoria && editar && <Badge className="ml-2 border-amber-500/50">falta subcategoria</Badge>}
+                  </td>
                   <td className="px-3 py-2">{p.unidade}</td>
                   {verCusto && <td className="px-3 py-2 text-right tabular-nums">{dinheiro(p.custoUnitario)}</td>}
                   <td className="px-3 py-2 text-right tabular-nums">{dinheiro(p.precoVendaUnitario)}</td>

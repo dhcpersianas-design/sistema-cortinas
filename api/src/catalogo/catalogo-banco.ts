@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { aplicarPrecosBarra, criarCatalogo, type Catalogo, type LinhaPrecoBarra, type Produto } from '@sistema/motor-calculo';
 import type { Banco } from '../db/conexao.js';
 import { precosBarraTrilho, produtos } from '../db/schema.js';
+import { carregarCategorias } from './categorias.js';
 
 /**
  * Monta o `Catalogo` do motor de cálculo a partir do banco: produtos ativos +
@@ -10,7 +11,9 @@ import { precosBarraTrilho, produtos } from '../db/schema.js';
  */
 export async function carregarCatalogoDoBanco(db: Banco): Promise<{ catalogo: Catalogo; avisos: string[]; skusComTabela: string[] }> {
   const linhasProdutos = await db.select().from(produtos).where(eq(produtos.ativo, true));
+  const caminho = new Map((await carregarCategorias(db, null)).map((c) => [c.id, c.caminho]));
   const base: Produto[] = linhasProdutos.map((p) => ({
+    categoria: caminho.get(p.categoriaId),
     sku: p.sku,
     nome: p.nome,
     unidade: p.unidadeMedida,

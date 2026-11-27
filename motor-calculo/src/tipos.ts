@@ -10,6 +10,8 @@ export interface Produto {
   custoUnitario: Numerico;
   precoVendaUnitario: Numerico;
   metadata?: Record<string, unknown>;
+  /** Caminho da categoria no catálogo (ex.: "Persianas › Rolo › Double Vision"). Opcional. */
+  categoria?: string;
 }
 
 /** Fonte de produtos. O motor só lê; quem chama decide de onde vêm (banco, seed, mock). */
