@@ -44,8 +44,8 @@ INSERT INTO parametros_sistema (loja_id, chave, valor, vigente_desde) VALUES
   ('00000000-0000-0000-0000-000000000001', 'SEMAFORO_VERDE_MIN_PCT',        45.00, '2026-01-01'),
   ('00000000-0000-0000-0000-000000000001', 'SEMAFORO_AMARELO_MIN_PCT',      35.00, '2026-01-01'),
   ('00000000-0000-0000-0000-000000000001', 'ALIQUOTA_IMPOSTO_VENDA_PCT',     0.00, '2026-01-01'),
-  -- SUPOSIÇÃO: R$ 81.000,00 é o limite anual do MEI conhecido; conferir o valor legal vigente.
-  ('00000000-0000-0000-0000-000000000001', 'LIMITE_FATURAMENTO_ANUAL_MEI', 81000.00, '2026-01-01'),
+  -- Limite anual do MEI informado pelo Gabriel (27/11/2026). Editável.
+  ('00000000-0000-0000-0000-000000000001', 'LIMITE_FATURAMENTO_ANUAL_MEI', 110000.00, '2026-01-01'),
   ('00000000-0000-0000-0000-000000000001', 'ALERTA_LIMITE_MEI_PCT',         80.00, '2026-01-01'),
   -- Markup padrão (v1.1): venda sugerida = custo x 2. Não muda o semáforo (45/35).
   ('00000000-0000-0000-0000-000000000001', 'MARKUP_PADRAO_PCT',            100.00, '2026-01-01');

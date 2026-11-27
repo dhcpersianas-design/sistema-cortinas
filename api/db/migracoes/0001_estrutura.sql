@@ -254,7 +254,7 @@ CREATE TABLE pedidos (
   cliente_id                  UUID NOT NULL REFERENCES clientes(id),
   vendedor_id                 UUID NOT NULL REFERENCES usuarios(id),
   -- [fundação] Sem perfil INSTALADOR: a instalação é de equipe/terceiro
-  -- cadastrado em fornecedores (categoria INSTALADOR). SUPOSIÇÃO a confirmar.
+  -- cadastrado em fornecedores (categoria INSTALADOR). Confirmado: instalação terceirizada.
   instalador_fornecedor_id    UUID REFERENCES fornecedores(id),
   status_operacional          status_pedido_enum NOT NULL DEFAULT 'AGUARDANDO_SINAL',
   data_compra                 TIMESTAMPTZ NOT NULL DEFAULT NOW(),

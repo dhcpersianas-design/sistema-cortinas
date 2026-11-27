@@ -24,7 +24,7 @@ describe('migrações e seed da especificação', () => {
     expect(Object.fromEntries(rows.map((r) => [r.chave, r.valor]))).toEqual({
       ALERTA_LIMITE_MEI_PCT: '80.0000',
       ALIQUOTA_IMPOSTO_VENDA_PCT: '0.0000',
-      LIMITE_FATURAMENTO_ANUAL_MEI: '81000.0000',
+      LIMITE_FATURAMENTO_ANUAL_MEI: '110000.0000',
       MARKUP_PADRAO_PCT: '100.0000',
       SEMAFORO_AMARELO_MIN_PCT: '35.0000',
       SEMAFORO_VERDE_MIN_PCT: '45.0000',

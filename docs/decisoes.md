@@ -33,8 +33,8 @@ Consequências no banco:
 
 - `perfil_usuario_enum` tem só `ADMIN` e `VENDEDOR`.
 - O vendedor em campo é quem faz a medição (`medicoes.tecnico_id` aponta para ele).
-- **SUPOSIÇÃO:** sem perfil INSTALADOR, a instalação é feita por equipe/terceiro
-  cadastrado em `fornecedores` (categoria `INSTALADOR`). Por isso `pedidos.instalador_id`
+- **Confirmado pelo Gabriel (27/11/2026):** a instalação é terceirizada; o instalador é
+  cadastrado em `fornecedores` (categoria `INSTALADOR`) e não tem login. Por isso `pedidos.instalador_id`
   virou `pedidos.instalador_fornecedor_id`. O ADMIN imprime/envia a OS de instalação.
 - Mantidos os campos `pode_ver_custos` e `desconto_max_pct` por vendedor.
 
@@ -61,7 +61,7 @@ Consequências no banco:
 - **Produtos não entram na migração**: o Gabriel cadastra o catálogo real. Os SKUs
   fictícios da especificação ficam em `api/db/exemplo/` (`npm run db:exemplo`), só para
   desenvolvimento e demonstração.
-- **SUPOSIÇÃO:** limite anual do MEI = R$ 81.000,00 (parâmetro editável). Conferir o valor legal vigente.
+- Limite anual do MEI = R$ 110.000,00 (informado pelo Gabriel em 27/11/2026; parâmetro editável).
 
 ## 4. Definições recebidas em 27/11/2026
 
