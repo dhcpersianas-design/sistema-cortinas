@@ -8,6 +8,10 @@ import {
   auditar, criarVersao, lerCabecalho, lerDocumento, noEscopo, recalcularTotais, situacaoLiberacao,
 } from '../orcamentos/servico.js';
 import { hojeLoja, somarDiasUteis } from './dias-uteis.js';
+import {
+  ajustarPorAditivo, atualizarVencimentoSaldo, cancelarFinanceiroPedido, criarPlanoRecebimento, ErroFinanceiro, lucroPedidos,
+  receberDoCliente, sincronizarComissao, sincronizarPagarInstalacao, sincronizarPagarOrdem, situacaoCliente, somarDias,
+} from '../financeiro/servico.js';
 
 /**
  * Pedido, compras, produção e instalação (especificação v1.1, seção 9 etapas 3 a 6, e 12.4).
@@ -207,6 +211,9 @@ export async function aprovarOrcamento(db: Banco, u: UsuarioSessao, orcamentoId:
     await registrarEvento(tx, p!.id, u.id, 'CRIADO',
       `Pedido criado a partir do orçamento ${c.codigo} v${c.versao} (${STATUS_PEDIDO[status]}).${e.observacao ? ` ${e.observacao}` : ''}`,
       { orcamentoId: c.id, valor: c.total });
+    // Financeiro: cobranças do cliente (sinal + saldo) e comissão do vendedor.
+    await criarPlanoRecebimento(tx, p!.id, u.id);
+    await sincronizarComissao(tx, p!.id, u.id);
     return { id: p!.id, numero, status };
   });
 }
@@ -222,6 +229,8 @@ export async function conferirSemAlteracao(db: Banco, u: UsuarioSessao, pedidoId
     await tx.execute(sql`UPDATE pedidos SET medidas_conferidas_em = NOW(), medidas_conferidas_por_id = ${u.id},
       data_previsao_entrega = ${await previsaoEntrega(tx, p)}::date WHERE id = ${p.id}`);
     await mudarStatus(tx, p, 'AGUARDANDO_SINAL', u.id, 'Medidas conferidas no local, sem alteração.');
+    await atualizarVencimentoSaldo(tx, p.id);
+    await sincronizarComissao(tx, p.id, u.id);
   });
 }
 
@@ -324,6 +333,10 @@ export async function confirmarAditivo(db: Banco, u: UsuarioSessao, pedidoId: st
       if (g.criadas.length) avisos.push(`${g.criadas.length} ordem(ns) de compra complementar(es) criada(s).`);
       await recalcularStatus(tx, p.id, u.id);
     }
+    await atualizarVencimentoSaldo(tx, p.id);
+    avisos.push(...await ajustarPorAditivo(tx, p.id, diferenca, a.numero, u.id));
+    await sincronizarPagarInstalacao(tx, p.id, u.id);
+    await sincronizarComissao(tx, p.id, u.id);
     if (!diferenca.isZero()) {
       avisos.push(diferenca.gt(0)
         ? `O cliente passa a dever mais R$ ${diferenca.toFixed(2)}.`
@@ -335,7 +348,7 @@ export async function confirmarAditivo(db: Banco, u: UsuarioSessao, pedidoId: st
 
 // ------------------------------------------------------------------ sinal e compras
 
-export type EntradaSinal = { valor: string; forma: string; recebidoEm: string } | { semSinal: true; motivo?: string };
+export type EntradaSinal = { valor: string; forma: string; recebidoEm: string; parcelas?: number } | { semSinal: true; motivo?: string };
 
 /** Confirma o sinal (ou libera sem sinal) e gera as ordens de compra por fornecedor. */
 export async function liberarCompras(db: Banco, u: UsuarioSessao, pedidoId: string, e: EntradaSinal) {
@@ -353,6 +366,14 @@ export async function liberarCompras(db: Banco, u: UsuarioSessao, pedidoId: stri
         sinal_recebido_em = ${e.recebidoEm}::date, compras_liberadas_em = NOW(), compras_liberadas_por_id = ${u.id} WHERE id = ${p.id}`);
       await registrarEvento(tx, p.id, u.id, 'SINAL', `Sinal de R$ ${d(e.valor).toFixed(2)} recebido em ${e.recebidoEm.split('-').reverse().join('/')}.`,
         { valor: e.valor, forma: e.forma });
+      // Baixa nas contas a receber (sinal primeiro; o que passar abate o saldo).
+      await criarPlanoRecebimento(tx, p.id, u.id);
+      try {
+        await receberDoCliente(tx, p.id, { valor: e.valor, forma: e.forma, parcelas: e.parcelas, data: e.recebidoEm }, u.id);
+      } catch (x) {
+        if (x instanceof ErroFinanceiro) throw new ErroPedido(x.message, x.status);
+        throw x;
+      }
     }
     await mudarStatus(tx, p, 'EM_COMPRA', u.id);
     const g = await gerarCompras(tx, p.id, p.lojaId, null, null);
@@ -435,6 +456,7 @@ export async function gerarCompras(tx: Exec, pedidoId: string, lojaId: string, a
       ${i.unidade}::unidade_medida_enum, ${d(i.quantidade).toFixed(4)}, ${d(i.custoUnitario).toFixed(4)}, ${totais[k]!.toFixed(2)}, ${k + 1})`);
     await tx.execute(sql`INSERT INTO ordem_compra_itens (ordem_id, item_composto_id, ambiente, produto_id, sku, descricao, unidade,
       quantidade, custo_unitario, custo_total, ordem) VALUES ${sql.join(valores, sql`, `)}`);
+    await sincronizarPagarOrdem(tx, oc!.id); // previsão do custo em Contas a pagar
     criadas.push(numero);
   }
   if (criadas.length) {
@@ -524,6 +546,7 @@ export async function atualizarOrdem(db: Banco, u: UsuarioSessao, ordemId: strin
       await registrarEvento(tx, o.pedidoId, u.id, 'ORDEM_COMPRA', `${o.numero} ${nomes[para] ?? para}.`, { ordemId: o.id, de, para });
     }
     await recalcularStatus(tx, o.pedidoId, u.id);
+    await sincronizarPagarOrdem(tx, o.id, u.id);
     return { pedidoId: o.pedidoId };
   });
 }
@@ -551,6 +574,8 @@ export async function agendarInstalacao(db: Banco, u: UsuarioSessao, pedidoId: s
     await registrarEvento(tx, p.id, u.id, 'AGENDA', `Instalação ${re} para ${quando} com ${f.nome}${p.status === 'PRONTO_ESTOQUE' || p.status === 'INSTALACAO_AGENDADA' ? '' : ' (pré-agendada: ainda em produção)'}.`,
       { data: e.data, instaladorId: e.instaladorId });
     if (p.status === 'PRONTO_ESTOQUE') await mudarStatus(tx, p, 'INSTALACAO_AGENDADA', u.id);
+    await sincronizarPagarInstalacao(tx, p.id, u.id);
+    await atualizarVencimentoSaldo(tx, p.id);
   });
 }
 
@@ -561,6 +586,7 @@ export async function desmarcarInstalacao(db: Banco, u: UsuarioSessao, pedidoId:
     await tx.execute(sql`UPDATE pedidos SET data_instalacao_agendada = NULL, atualizado_em = NOW() WHERE id = ${p.id}`);
     await registrarEvento(tx, p.id, u.id, 'AGENDA', 'Instalação desmarcada.');
     if (p.status === 'INSTALACAO_AGENDADA') await mudarStatus(tx, p, 'PRONTO_ESTOQUE', u.id);
+    await atualizarVencimentoSaldo(tx, p.id);
   });
 }
 
@@ -612,8 +638,14 @@ export async function registrarAceite(db: Banco, u: UsuarioSessao, pedidoId: str
       `Cliente assinou o aceite (${e.nomeRecebedor})${ressalvas ? ' com ressalvas' : ''}${e.offline ? ', feito sem internet' : ''}.`, {}, e.offline ?? false);
     await mudarStatus(tx, p, 'INSTALADO_CONCLUIDO', u.id);
 
+    await sincronizarPagarInstalacao(tx, p.id, u.id);
+    // Pós-venda: ligar para o cliente alguns dias depois (spec: +7 dias).
+    const diasPos = Number((await parametro(tx as Banco, p.lojaId, 'POS_VENDA_DIAS')) ?? 7);
+    await tx.execute(sql`INSERT INTO pos_venda (loja_id, pedido_id, data_prevista)
+      VALUES (${p.lojaId}, ${p.id}, ${somarDias(hojeLoja(), diasPos)}::date) ON CONFLICT (pedido_id) DO NOTHING`);
+
     const avisos: string[] = [];
-    const saldo = d(p.valorTotal).minus(d(p.sinalValor ?? 0));
+    const saldo = await saldoDoCliente(tx, p);
     if (saldo.gt(0)) avisos.push(`Saldo a receber do cliente: R$ ${saldo.toFixed(2)}.`);
     if (ressalvas) avisos.push('Há itens marcados como não conferidos: veja as observações.');
     if (p.status !== 'INSTALACAO_AGENDADA') avisos.push('A instalação foi registrada antes de todas as compras serem recebidas.');
@@ -634,14 +666,19 @@ export async function cancelarPedido(db: Banco, u: UsuarioSessao, pedidoId: stri
       const [vig] = await linhas<{ versao: number }>(tx, sql`SELECT versao FROM orcamentos WHERE id = ${p.orcamentoId}`);
       await tx.execute(sql`DELETE FROM orcamentos WHERE grupo_id = ${p.grupoId} AND versao > ${vig!.versao} AND status = 'RASCUNHO'`);
     }
-    const ocs = await linhas<{ numero: string; status: string }>(tx, sql`
+    const ocs = await linhas<{ id: string; numero: string; status: string }>(tx, sql`
       UPDATE ordens_compra SET status = 'CANCELADA', atualizado_em = NOW()
-       WHERE pedido_id = ${p.id} AND status = 'ABERTA' RETURNING numero, status`);
+       WHERE pedido_id = ${p.id} AND status = 'ABERTA' RETURNING id, numero, status`);
+    for (const o of ocs) await sincronizarPagarOrdem(tx, o.id, u.id);
     const enviadas = await linhas<{ numero: string }>(tx, sql`SELECT numero FROM ordens_compra WHERE pedido_id = ${p.id} AND status IN ('ENVIADA', 'RECEBIDA')`);
     await tx.execute(sql`UPDATE pedidos SET cancelado_em = NOW(), motivo_cancelamento = ${motivo} WHERE id = ${p.id}`);
     await mudarStatus(tx, p, 'CANCELADO', u.id, `Motivo: ${motivo}.`);
     if (ocs.length) await registrarEvento(tx, p.id, u.id, 'ORDEM_COMPRA', `Ordens abertas canceladas: ${ocs.map((o) => o.numero).join(', ')}.`);
     if (enviadas.length) await registrarEvento(tx, p.id, null, 'AVISO', `Ordens já enviadas ou recebidas (resolver com o fornecedor): ${enviadas.map((o) => o.numero).join(', ')}.`);
+    const pago = await cancelarFinanceiroPedido(tx, p.id);
+    if (pago.gt(0)) {
+      await registrarEvento(tx, p.id, null, 'AVISO', `O cliente já tinha pago R$ ${pago.toFixed(2)}. Se for devolver, lance em Financeiro > A pagar.`);
+    }
   });
 }
 
@@ -675,6 +712,28 @@ function acoesPossiveis(u: UsuarioSessao, p: CabecalhoPedido, aditivoAberto: boo
   return a;
 }
 
+/** O que o cliente ainda deve: cobranças em aberto (pedido antigo sem cobranças: total - sinal). */
+async function saldoDoCliente(db: Exec, p: Pick<CabecalhoPedido, 'id' | 'valorTotal' | 'sinalValor' | 'status'>) {
+  const s = await situacaoCliente(db, p.id);
+  if (s.temPlano || p.status === 'CANCELADO') return d(s.aberto);
+  return d(p.valorTotal).minus(d(p.sinalValor ?? 0));
+}
+
+/** Contas a receber, a pagar e lucro real do pedido (só ADMIN). */
+async function financeiroDoPedido(db: Banco, p: CabecalhoPedido) {
+  const lancamentos = await linhas(db, sql`
+    SELECT l.id, l.tipo, l.origem, l.descricao, l.forma_pagamento AS forma, l.valor_bruto AS valor, l.taxa_transacao AS taxa,
+           l.valor_liquido AS liquido, to_char(l.data_vencimento, 'YYYY-MM-DD') AS vencimento,
+           to_char(l.data_liquidacao, 'YYYY-MM-DD') AS liquidacao, l.status, l.cartao, l.numero_parcela AS parcela,
+           l.total_parcelas AS "totalParcelas", f.nome_fantasia AS fornecedor,
+           (l.status = 'PREVISTO' AND l.data_vencimento < ${hojeLoja()}::date) AS vencido
+      FROM lancamentos_financeiros l LEFT JOIN fornecedores f ON f.id = l.fornecedor_id
+     WHERE l.pedido_id = ${p.id} AND l.status <> 'CANCELADO'
+     ORDER BY l.tipo DESC, l.data_vencimento, l.criado_em`);
+  const [lucro] = await lucroPedidos(db, [p.id], p.lojaId);
+  return { lancamentos, lucro: lucro ?? null };
+}
+
 export async function montarPedido(db: Banco, u: UsuarioSessao, id: string) {
   const p = await lerPedido(db, id);
   if (!p || !pedidoNoEscopo(u, p)) return null;
@@ -691,7 +750,8 @@ export async function montarPedido(db: Banco, u: UsuarioSessao, id: string) {
     SELECT e.id, e.acao, e.descricao, e.offline, e.criado_em AS "criadoEm", us.nome AS usuario
       FROM pedido_eventos e LEFT JOIN usuarios us ON us.id = e.usuario_id
      WHERE e.pedido_id = ${p.id} ORDER BY e.criado_em DESC, e.id LIMIT 300`);
-  const saldo = d(p.valorTotal).minus(d(p.sinalValor ?? 0));
+  const saldo = await saldoDoCliente(db, p);
+  const fin = pode(u, 'financeiro.gerenciar') ? await financeiroDoPedido(db, p) : null;
   const { custoPrevisto, custoReal, ...semCusto } = p;
   return {
     ...semCusto,
@@ -709,6 +769,7 @@ export async function montarPedido(db: Banco, u: UsuarioSessao, id: string) {
     aceite: aceite ?? null,
     eventos,
     acoes: acoesPossiveis(u, p, Boolean(aberto), Boolean(aceite)),
+    financeiro: fin,
   };
 }
 

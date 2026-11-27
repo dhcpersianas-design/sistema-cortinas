@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { exigirUsuario } from '@/lib/sessao';
+import { apiServidor, exigirUsuario } from '@/lib/sessao';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
@@ -15,20 +15,30 @@ const MODULOS: Modulo[] = [
   { titulo: 'Pedidos', descricao: 'Orçamento aprovado vira pedido: medição, aditivo, sinal e andamento', permissao: 'pedidos.proprios', href: '/pedidos' },
   { titulo: 'Compras e produção', descricao: 'Ordens por fornecedor, ficha de corte e pedido de fábrica', permissao: 'compras.gerenciar', href: '/compras' },
   { titulo: 'Instalações', descricao: 'Agenda, OS e aceite do cliente na obra (funciona offline)', permissao: 'pedidos.proprios', href: '/instalacoes' },
-  { titulo: 'Financeiro', descricao: 'Contas a pagar e receber, DAS MEI', permissao: 'financeiro.gerenciar' },
-  { titulo: 'Relatórios', descricao: 'Os 8 relatórios gerenciais e DRE', permissao: 'relatorios.ver' },
+  { titulo: 'Pós-venda', descricao: 'Ligar para o cliente depois da instalação e anotar a avaliação', permissao: 'pedidos.proprios', href: '/pos-venda' },
+  { titulo: 'Financeiro', descricao: 'Contas a receber e a pagar, taxas do cartão, DAS e limite do MEI', permissao: 'financeiro.gerenciar', href: '/financeiro' },
+  { titulo: 'Relatórios', descricao: 'DRE, faturamento, lucro por pedido, fluxo de caixa e mais (PDF e Excel)', permissao: 'relatorios.ver', href: '/relatorios' },
   { titulo: 'Equipe', descricao: 'Usuários, perfis e acesso a custos', permissao: 'usuarios.gerenciar', href: '/equipe' },
 ];
 
 export default async function Painel() {
   const u = await exigirUsuario();
   const meus = MODULOS.filter((m) => u.permissoes.includes(m.permissao));
+  // Alerta do limite do MEI (só para o administrador).
+  const mei = u.permissoes.includes('financeiro.gerenciar')
+    ? (await apiServidor<{ mei: { mensagem: string | null; nivel: string } }>('/api/financeiro/mei')).dados?.mei ?? null
+    : null;
   return (
     <div>
       <h1 className="mb-1 text-xl font-semibold">Olá, {u.nome.split(' ')[0]}</h1>
       <p className="mb-6 text-sm text-muted-foreground">
         {u.perfil === 'ADMIN' ? 'Acesso total.' : u.podeVerCustos ? 'Vendedor com acesso a custos.' : 'Vendedor: você vê preço de venda e o semáforo de margem.'}
       </p>
+      {mei?.mensagem && (
+        <Link href="/financeiro" className={`mb-4 block rounded-md border px-3 py-2 text-sm ${mei.nivel === 'ESTOUROU' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-amber-500/40 bg-amber-500/10'}`}>
+          {mei.mensagem}
+        </Link>
+      )}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {meus.map((m) => {
           const card = (
