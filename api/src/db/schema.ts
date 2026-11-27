@@ -17,6 +17,9 @@ export const lojas = pgTable('lojas', {
   id: uuid('id').primaryKey().defaultRandom(),
   nome: varchar('nome', { length: 120 }).notNull(),
   cnpj: varchar('cnpj', { length: 18 }),
+  telefone: varchar('telefone', { length: 20 }),
+  email: varchar('email', { length: 120 }),
+  instagram: varchar('instagram', { length: 60 }),
   ativo: boolean('ativo').default(true),
 });
 
