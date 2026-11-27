@@ -8,7 +8,8 @@ type Modulo = { titulo: string; descricao: string; permissao: string; href?: str
 // Ordem das fases da especificação (seção 13). Sem href = ainda não construído.
 const MODULOS: Modulo[] = [
   { titulo: 'Catálogo', descricao: 'Produtos, preços e tabela de barras do trilho', permissao: 'catalogo.ver', href: '/catalogo' },
-  { titulo: 'Clientes', descricao: 'Cadastro e pesquisa por nome, telefone ou produto', permissao: 'clientes.ver' },
+  { titulo: 'Clientes', descricao: 'Cadastro, histórico e pesquisa por nome, telefone ou produto (funciona offline)', permissao: 'clientes.ver', href: '/clientes' },
+  { titulo: 'Fornecedores', descricao: 'Fábricas, ateliês e instaladores terceirizados', permissao: 'fornecedores.ver', href: '/fornecedores' },
   { titulo: 'Orçamentos', descricao: 'Configurador por ambiente com cálculo automático', permissao: 'orcamentos.proprios' },
   { titulo: 'Medições', descricao: 'Medição técnica no local, gera a versão v2', permissao: 'medicoes.proprias' },
   { titulo: 'Pedidos', descricao: 'Pedidos aprovados e andamento', permissao: 'pedidos.proprios' },

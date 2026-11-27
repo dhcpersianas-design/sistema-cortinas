@@ -13,7 +13,11 @@ export default async function LayoutApp({ children }: { children: React.ReactNod
         <div className="mx-auto flex h-14 max-w-5xl items-center gap-3 px-4">
           <Link href="/" className="whitespace-nowrap font-semibold">Cortinas</Link>
           <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto text-sm">
+            <Link href="/clientes" className="rounded-md px-2 py-1 hover:bg-muted">Clientes</Link>
             <Link href="/catalogo" className="rounded-md px-2 py-1 hover:bg-muted">Catálogo</Link>
+            {u.permissoes.includes('fornecedores.ver') && (
+              <Link href="/fornecedores" className="rounded-md px-2 py-1 hover:bg-muted">Fornecedores</Link>
+            )}
             {u.permissoes.includes('usuarios.gerenciar') && (
               <Link href="/equipe" className="rounded-md px-2 py-1 hover:bg-muted">Equipe</Link>
             )}

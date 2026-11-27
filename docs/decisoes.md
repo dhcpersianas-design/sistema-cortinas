@@ -16,7 +16,8 @@ Matriz de permissões (código: `api/src/auth/permissoes.ts`):
 
 | Permissão | ADMIN | VENDEDOR |
 |---|:-:|:-:|
-| Ver e editar clientes | ✓ | ✓ |
+| Ver e editar clientes | todos | só os **próprios** (é o responsável) |
+| Transferir cliente para outro vendedor / inativar | ✓ | — |
 | Orçamentos / medições / pedidos **próprios** | ✓ | ✓ |
 | Orçamentos / medições / pedidos **de todos** | ✓ | — |
 | Usar o cálculo de cortina/persiana | ✓ | ✓ |
@@ -89,3 +90,26 @@ Consequências no banco:
 | Cálculo | Pacote `motor-calculo` (já existente) | Importado pela API e, no futuro, pelo app offline. Nada foi duplicado |
 
 O navegador fala só com o Next, que repassa `/api/*` para a API (mesma origem, cookie sem CORS).
+
+## 6. Cadastros (clientes, fornecedores, catálogo), 27/11/2026
+
+Tudo abaixo foi confirmado pelo Gabriel em 27/11/2026.
+
+- **Cliente tem um vendedor responsável** (`clientes.vendedor_responsavel_id`). Quem cadastra vira o
+  responsável; o VENDEDOR vê e edita só os dele; o ADMIN vê todos, transfere e inativa.
+  Vendedor não inativa cliente (só o ADMIN), para não sumir histórico por engano.
+- **CPF/CNPJ e WhatsApp únicos** (confirmado pelo Gabriel, 27/11/2026): um cadastro por CPF e por
+  WhatsApp. CPF guardado só com dígitos (dígito verificador conferido). Se outro vendedor tenta
+  cadastrar um CPF ou WhatsApp que já existe, o sistema recusa sem mostrar os dados do outro cliente
+  e pede para o ADMIN transferir.
+- **Telefone** sempre no padrão `+55DDNNNNNNNNN`; botão "Abrir WhatsApp" usa link `wa.me` (sem custo).
+- **Busca** sem acento (`unaccent` + `pg_trgm`): nome (tolera erro de digitação), telefone, CPF, e-mail,
+  bairro/cidade e **produto comprado** (descrição dos itens dos pedidos, ex.: "linho", "wave").
+- **CEP** preenche o endereço via ViaCEP direto do navegador. Sem internet, digita-se o endereço.
+- **Fornecedores**: só ADMIN. Categorias fixas: TECIDO, PERSIANA, FERRAGEM, MOTORIZACAO, COSTUREIRA,
+  INSTALADOR, OUTRO. Instalador pessoa física usa CPF no campo de documento; há chave PIX para pagamento.
+- **Catálogo**: só o ADMIN cria/edita. Venda em branco = custo + `MARKUP_PADRAO_PCT` (100%). Toda mudança
+  de custo/venda vai para `historico_precos_produto`, inclusive cada tamanho da tabela de barras
+  (`tamanho_m`). Tabela de barras só para a categoria "Trilhos e Varoes"; o cálculo só cobra por barra
+  quando os 6 tamanhos estão preenchidos (regra que já existia no motor). Produto não é apagado, é inativado.
+- O VENDEDOR vê o catálogo com preço de venda (inclusive por barra), sem custo e sem fornecedor.

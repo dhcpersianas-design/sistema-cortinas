@@ -2,15 +2,17 @@
 // - Arquivos estáticos do Next (_next/static): cache primeiro (têm hash no nome).
 // - Páginas: rede primeiro; sem rede, a última versão guardada; senão /offline.
 // - GET /api/catalogo/*: rede primeiro com cópia em cache, para calcular na obra.
+// - Clientes: o app guarda no IndexedDB (lib/clientes-offline.ts), não aqui.
 // - Demais chamadas à API (login, gravações) nunca são cacheadas; gravações
 //   offline vão para a fila local (IndexedDB) do app, não para o SW.
-const VERSAO = 'v1';
+const VERSAO = 'v2';
 const ESTATICO = `estatico-${VERSAO}`;
 const PAGINAS = `paginas-${VERSAO}`;
 const DADOS = `dados-${VERSAO}`;
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(PAGINAS).then((c) => c.addAll(['/offline'])).then(() => self.skipWaiting()));
+  // /clientes e /catalogo já ficam guardados na instalação, para abrir na obra sem ter visitado antes.
+  e.waitUntil(caches.open(PAGINAS).then((c) => c.addAll(['/offline']).then(() => Promise.all(TELAS_OFFLINE.map((t) => c.add(t).catch(() => {}))))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -22,6 +24,10 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+// Telas que leem os dados no próprio aparelho (IndexedDB): qualquer ?c=... abre
+// com a mesma página guardada, mesmo que aquele endereço nunca tenha sido aberto.
+const TELAS_OFFLINE = ['/clientes', '/catalogo'];
+
 async function redePrimeiro(req, nomeCache, reserva) {
   const cache = await caches.open(nomeCache);
   try {
@@ -29,7 +35,8 @@ async function redePrimeiro(req, nomeCache, reserva) {
     if (r.ok) cache.put(req, r.clone());
     return r;
   } catch {
-    return (await cache.match(req)) ?? (reserva ? cache.match(reserva) : Response.error());
+    const ignoreSearch = TELAS_OFFLINE.includes(new URL(req.url).pathname);
+    return (await cache.match(req, { ignoreSearch })) ?? (reserva ? cache.match(reserva) : Response.error());
   }
 }
 

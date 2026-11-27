@@ -3,12 +3,12 @@ import type { Perfil } from '../db/schema.js';
 /**
  * Permissões do sistema. Só existem 2 perfis (decisão do Gabriel, 27/11/2026):
  *  - ADMIN: acesso total (inclui o que a especificação dava a FINANCEIRO e INSTALADOR).
- *  - VENDEDOR: vendedor em campo. Clientes, orçamentos e pedidos próprios, medição
+ *  - VENDEDOR: vendedor em campo. Clientes (só os dele), orçamentos e pedidos próprios, medição
  *    no local e cálculo. Custo de fábrica só com a flag `pode_ver_custos`.
  * Matriz completa e motivos em docs/decisoes.md.
  */
 export const PERMISSOES = [
-  'clientes.ver', 'clientes.editar',
+  'clientes.ver', 'clientes.editar', 'clientes.todos',
   'orcamentos.proprios', 'orcamentos.todos',
   'medicoes.proprias', 'medicoes.todas',
   'pedidos.proprios', 'pedidos.todos',
