@@ -165,13 +165,13 @@ describe('contas a receber e a pagar do pedido', () => {
   it('receber o saldo no crédito 3x gera 3 repasses com a taxa; desfazer volta a cobrar', async () => {
     const r = await req(admin, 'POST', `/api/pedidos/${pedido.id}/receber`, { valor: '2062.00', forma: 'CREDITO_PARCELADO', parcelas: 3, data: hoje });
     expect(r.statusCode, r.body).toBe(200);
-    // Taxa repassada ao cliente: passa 2.062 / (1 - 4,5%) = 2.159,17 na maquininha; a loja fica com 2.062.
-    expect(r.json().cobrado).toBe('2159.17');
+    // Até 3x é sem juros: o cliente passa o valor cheio (2.062) e a loja paga a taxa.
+    expect(r.json().cobrado).toBe('2062.00');
     let { lanc, p } = await fin(pedido.id);
     const cartao = lanc.filter((l) => l.cartao);
-    expect(cartao.map((l) => l.valor)).toEqual(['719.73', '719.72', '719.72']);
-    expect(cartao.reduce((s, l) => s.plus(d(l.taxa)), d(0)).toFixed(2)).toBe('97.16'); // 4,5% de 2.159,17
-    expect(cartao.reduce((s, l) => s.plus(d(l.liquido)), d(0)).toFixed(2)).toBe('2062.01');
+    expect(cartao.map((l) => l.valor)).toEqual(['687.34', '687.33', '687.33']);
+    expect(cartao.reduce((s, l) => s.plus(d(l.taxa)), d(0)).toFixed(2)).toBe('92.79'); // 4,5% de 2.062
+    expect(cartao.reduce((s, l) => s.plus(d(l.liquido)), d(0)).toFixed(2)).toBe('1969.21');
     expect(cartao.map((l) => l.vencimento)).toEqual([somarDias(hoje, 30), somarDias(hoje, 60), somarDias(hoje, 90)]);
     expect(p.saldo).toBe('0.00');
     // Valor maior que o saldo: recusado
@@ -186,7 +186,7 @@ describe('contas a receber e a pagar do pedido', () => {
     expect((await req(admin, 'POST', `/api/pedidos/${pedido.id}/receber`, { valor: '2062', forma: 'PIX', data: hoje })).statusCode).toBe(200);
   });
 
-  it('simulação do cartão: crédito 12x embute a taxa (tabela Visa/Master); débito não; vendedor não vê a taxa', async () => {
+  it('simulação do cartão: crédito de 4x a 12x embute a taxa (tabela Visa/Master); até 3x e débito não; vendedor não vê a taxa', async () => {
     const q = 'valor=1000&forma=CREDITO_PARCELADO&parcelas=12';
     const a = (await req(admin, 'GET', `/api/financeiro/simular-cartao?${q}`)).json();
     expect(a).toMatchObject({ repasse: true, taxaPct: '12.40', cobrado: '1141.56', parcelas: 12, valorParcela: '95.13' });
@@ -262,16 +262,19 @@ describe('aditivo, cancelamento e cartão na aprovação', () => {
     const rec = lanc.filter((l) => l.tipo === 'RECEITA');
     expect(rec).toHaveLength(1);
     expect(rec[0]!.valor).toBe(p.valorTotal);
-    expect(rec[0]!.taxa).toBe('0.00'); // a taxa vai embutida no valor passado na maquininha
-    // Recebe em 3x Visa/Master (4,5% no teste): passa o valor com a taxa embutida e a loja fica com o total.
+    expect(rec[0]!.taxa).toBe(d(p.valorTotal).mul('0.045').toFixed(2)); // 3x é sem juros: a taxa é da loja
+    // Recebe em 3x Visa/Master (4,5% no teste): o cliente passa o valor cheio.
     const r = await req(admin, 'POST', `/api/pedidos/${p.id}/receber`, { valor: p.valorTotal, forma: 'CREDITO_PARCELADO', parcelas: 3, bandeira: 'VISA_MASTER', data: hoje });
     expect(r.statusCode, r.body).toBe(200);
-    const cobrado = d(p.valorTotal).div('0.955').toDecimalPlaces(2, 0);
-    expect(r.json().cobrado).toBe(cobrado.toFixed(2));
+    expect(r.json().cobrado).toBe(d(p.valorTotal).toFixed(2));
     const { lucro, p: pp } = await fin(p.id);
     expect(pp.saldo).toBe('0.00');
-    expect(lucro.venda).toBe(cobrado.toFixed(2)); // venda inclui a taxa paga pelo cliente
-    expect(d(lucro.venda).minus(d(lucro.taxas)).minus(d(p.valorTotal)).abs().lte('0.05')).toBe(true);
+    expect(lucro.venda).toBe(d(p.valorTotal).toFixed(2));
+    // De 4x a 12x a taxa vai embutida no valor.
+    const q = await req(admin, 'GET', '/api/financeiro/simular-cartao?valor=1000&forma=CREDITO_PARCELADO&parcelas=4');
+    expect(q.json()).toMatchObject({ repasse: true });
+    const q3 = await req(admin, 'GET', '/api/financeiro/simular-cartao?valor=1000&forma=CREDITO_PARCELADO&parcelas=3');
+    expect(q3.json()).toMatchObject({ repasse: false, cobrado: '1000.00' });
   });
 
   it('pedido antigo (sem cobranças) ganha o plano com o sinal já pago ao abrir o financeiro', async () => {

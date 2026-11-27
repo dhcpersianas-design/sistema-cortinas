@@ -570,7 +570,7 @@ function TetoNegociacao({ teto, desatualizado }: { teto: NonNullable<Orcamento['
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
         <div className="rounded-md bg-sky-500/10 px-3 py-2">
-          <div className="text-xs text-muted-foreground">Desconto máximo nesta venda</div>
+          <div className="text-xs text-muted-foreground">Desconto máximo nesta venda (só no PIX)</div>
           <div className="text-lg font-semibold">{moeda(teto.maximo.valor)} <span className="text-sm font-normal">({pct(teto.maximo.pct)})</span></div>
           <div className="text-xs text-muted-foreground">
             {teto.maximo.pelo === 'VENDEDOR'
@@ -584,6 +584,20 @@ function TetoNegociacao({ teto, desatualizado }: { teto: NonNullable<Orcamento['
                 O desconto dado ({moeda(teto.descontoAtual)}) passou do máximo.{passouMinimo ? ' Precisa da senha do administrador.' : ' A margem saiu da faixa saudável.'}
               </p>
             : <p>Já deu {moeda(teto.descontoAtual)} de desconto. Ainda cabe <strong>{moeda(teto.aindaCabe)}</strong>.</p>
+        )}
+        {teto.descontoIgnorado && (
+          <p className="text-amber-700 dark:text-amber-400">
+            A forma escolhida não é PIX: o desconto não entra no valor. O cliente paga o valor cheio.
+          </p>
+        )}
+        {teto.cartaoSemJuros && (
+          <p className="text-xs">
+            Cartão (débito ou crédito até {teto.cartaoSemJuros.parcelas}x sem juros): {moeda(teto.cartaoSemJuros.valor)}, sem desconto. A loja paga a taxa
+            {teto.cartaoSemJuros.margemPct != null
+              ? `: margem ${pct(teto.cartaoSemJuros.margemPct)}.`
+              : `: margem ${teto.cartaoSemJuros.semaforo === 'VERDE' ? 'verde' : teto.cartaoSemJuros.semaforo === 'AMARELO' ? 'amarela' : 'vermelha'}.`}
+            {' '}De {teto.cartaoSemJuros.parcelas + 1}x a 12x a taxa vai embutida no valor.
+          </p>
         )}
         <p className="text-xs text-muted-foreground">
           {faixaAmarela

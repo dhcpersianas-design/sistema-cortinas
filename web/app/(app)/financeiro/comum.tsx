@@ -76,8 +76,8 @@ export function CamposCartao({ forma, valor, parcelas, setParcelas }: {
           Passe na maquininha: <strong>{moeda(sim.cobrado)}</strong>
           {sim.parcelas > 1 ? <> ({sim.parcelas}x de <strong>{moeda(sim.valorParcela)}</strong>)</> : null}
           {sim.repasse && Number(sim.cobrado) > v
-            ? <span className="block text-xs text-muted-foreground">Já com a taxa da maquininha embutida: a loja recebe {moeda(v.toFixed(2))}, como no PIX. Para o cliente, informe só o valor final.</span>
-            : forma === 'DEBITO' ? <span className="block text-xs text-muted-foreground">Débito: preço cheio, sem taxa embutida (a taxa fica por conta da loja).</span> : null}
+            ? <span className="block text-xs text-muted-foreground">Parcelado acima do &quot;sem juros&quot;: já com a taxa da maquininha embutida, a loja recebe {moeda(v.toFixed(2))}. Para o cliente, informe só o valor final.</span>
+            : forma !== 'PIX' ? <span className="block text-xs text-muted-foreground">Sem juros: valor cheio do orçamento (sem o desconto do PIX); a taxa fica por conta da loja.</span> : null}
         </p>
       )}
     </>

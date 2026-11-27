@@ -7,7 +7,7 @@ import { carregarCatalogoDoBanco } from '../catalogo/catalogo-banco.js';
 import type { Banco } from '../db/conexao.js';
 import { formatarTelefone } from '../cadastros/validacao.js';
 import { lerDocumento, type ItemCompleto } from './servico.js';
-import { repasseLigado, simularCartao } from '../financeiro/servico.js';
+import { regraCartao, simularCartao } from '../financeiro/servico.js';
 
 /**
  * Proposta comercial do cliente (especificação v1.1, seção 12.3 item 1), com a identidade
@@ -135,24 +135,38 @@ export async function montarProposta(db: Banco, id: string, detalhar: boolean): 
     grupos.set(i.ambiente, g);
   }
   const forma = c.formaPagamento ? FORMAS[c.formaPagamento] ?? c.formaPagamento : null;
-  // Crédito com a taxa repassada (Gabriel, 27/11/2026): o valor já vem com a taxa embutida (tabela
-  // Visa/Mastercard) e a proposta mostra só o valor final das parcelas, sem falar em taxa.
-  // Débito: preço cheio, sem taxa embutida.
-  const repasse = await repasseLigado(db, c.lojaId);
-  const cartao = c.formaPagamento != null && ['CREDITO_AVISTA', 'CREDITO_PARCELADO'].includes(c.formaPagamento);
-  let textoForma: string | null = null;
-  if (forma && cartao && repasse && d(c.total).gt(0)) {
-    const s = await simularCartao(db, c.lojaId, d(c.total), c.formaPagamento!, c.parcelas ?? 1, 'VISA_MASTER');
-    textoForma = s.parcelas > 1 ? `${forma} em ${s.parcelas}x de ${dinheiroBR(s.valorParcela)}` : `${forma}: ${dinheiroBR(s.cobrado)}`;
-  } else if (forma) {
-    textoForma = `${forma}${(c.parcelas ?? 1) > 1 ? ` em ${c.parcelas}x de ${dinheiroBR(d(c.total).div(c.parcelas!).toFixed(2))}` : ''}`;
+  // Formas de pagamento (Gabriel, 27/11/2026): desconto só no PIX à vista; débito e crédito até 3x sem
+  // juros pelo valor cheio; de 4x a 12x a taxa (tabela Visa/Mastercard) vai embutida no valor cheio.
+  // A proposta mostra só o valor final das parcelas, sem falar em taxa.
+  const regra = await regraCartao(db, c.lojaId);
+  const cheio = d(c.subtotal).plus(d(c.acrescimo));
+  const descontoPix = c.descontoTipo === 'PERCENTUAL' ? d(c.subtotal).mul(d(c.descontoInformado)).div(100).toDecimalPlaces(2) : d(c.descontoInformado);
+  const pix = cheio.minus(descontoPix);
+  const parcelaTxt = async (n: number) => {
+    const sim = await simularCartao(db, c.lojaId, cheio, n > 1 ? 'CREDITO_PARCELADO' : 'CREDITO_AVISTA', n, 'VISA_MASTER');
+    return `${n}x de ${dinheiroBR(sim.valorParcela)}`;
+  };
+  const linhasPg: string[] = [];
+  if (cheio.gt(0)) {
+    const fp = c.formaPagamento;
+    if (fp && fp !== 'PIX') {
+      if (fp === 'CREDITO_PARCELADO' && (c.parcelas ?? 1) > 1) {
+        const n = c.parcelas!;
+        linhasPg.push(`${forma} em ${await parcelaTxt(n)}${n <= regra.semJuros ? ' sem juros' : ''}`);
+      } else {
+        linhasPg.push(`${forma}: ${dinheiroBR(cheio.toFixed(2))}`);
+      }
+      if (pix.lt(cheio)) linhasPg.push(`Ou à vista no PIX: ${dinheiroBR(pix.toFixed(2))}`);
+    } else {
+      linhasPg.push(`À vista no PIX: ${dinheiroBR(pix.toFixed(2))}`);
+      const sj = regra.semJuros;
+      linhasPg.push(sj >= 2
+        ? `Cartão de débito ou crédito em até ${sj}x sem juros: ${dinheiroBR(cheio.toFixed(2))} (${sj}x de ${dinheiroBR(cheio.div(sj).toDecimalPlaces(2, 0).toFixed(2))})`
+        : `Cartão de débito ou crédito à vista: ${dinheiroBR(cheio.toFixed(2))}`);
+      linhasPg.push(`Ou no cartão de crédito em até ${await parcelaTxt(12)}`);
+    }
   }
-  let opcaoCartao: string | null = null;
-  if (repasse && !cartao && c.formaPagamento !== 'DEBITO' && d(c.total).gt(0)) {
-    const s = await simularCartao(db, c.lojaId, d(c.total), 'CREDITO_PARCELADO', 12, 'VISA_MASTER');
-    opcaoCartao = `${forma ? 'Ou no' : 'No'} cartão de crédito em até 12x de ${dinheiroBR(s.valorParcela)}`;
-  }
-  const condicoes = [textoForma, opcaoCartao, c.condicoesPagamentoTexto].filter(Boolean).join('. ') || 'A combinar.';
+  const condicoes = [...linhasPg, c.condicoesPagamentoTexto].filter(Boolean).join('. ') || 'A combinar.';
   return {
     loja: {
       nome: loja?.nome ?? 'Loja', cnpj: loja?.cnpj || null, telefone: loja?.telefone || null,

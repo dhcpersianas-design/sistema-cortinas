@@ -51,7 +51,7 @@ function Taxas({ c, onFeito, onErro }: P) {
       <CardContent className="space-y-3 text-sm">
         <p className="text-muted-foreground">
           {repasse
-            ? 'No crédito a taxa vai embutida no valor cobrado do cliente (Regras do negócio): a loja recebe o mesmo que no PIX e a margem do orçamento não muda. No débito o cliente paga o preço cheio e a taxa sai da margem. '
+            ? 'Desconto só no PIX. Débito e crédito até o limite "sem juros" (padrão 3x, em Regras do negócio): o cliente paga o valor cheio e a taxa sai da margem da loja. Acima disso (até 12x) a taxa vai embutida no valor cheio e a margem não muda. '
             : 'A taxa entra no cálculo da margem do orçamento e no valor que realmente cai na conta. '}
           &quot;Dias para cair&quot; = em quantos dias o dinheiro chega (no parcelado, cada parcela cai 30 dias depois da anterior; com taxa de antecipação, cai tudo junto).
         </p>

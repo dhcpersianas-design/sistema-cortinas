@@ -1,3 +1,4 @@
+import { descontoValeNaForma } from '../src/index.js';
 import { describe, expect, it } from 'vitest';
 import { d, tetoDesconto, totalizarOrcamento } from '../src/index.js';
 
@@ -24,5 +25,15 @@ describe('teto de desconto', () => {
 
   it('nunca passa do subtotal (custo zero)', () => {
     expect(tetoDesconto([{ vendaTotal: '200', custoTotal: '0' }], 0, {}, 35).valor.lte(d(200))).toBe(true);
+  });
+});
+
+describe('descontoValeNaForma', () => {
+  it('desconto só vale no PIX (ou sem forma escolhida)', () => {
+    expect(descontoValeNaForma('PIX')).toBe(true);
+    expect(descontoValeNaForma(null)).toBe(true);
+    expect(descontoValeNaForma('DEBITO')).toBe(false);
+    expect(descontoValeNaForma('CREDITO_PARCELADO')).toBe(false);
+    expect(descontoValeNaForma('DINHEIRO')).toBe(false);
   });
 });

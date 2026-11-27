@@ -361,7 +361,7 @@ describe('proposta em PDF', () => {
     expect(p.loja).toMatchObject({ telefone: '(41) 98837-5657', email: 'dhc@dhcpersianas.com.br', instagram: '@dhcpersianas' });
     expect(p.ambientes[0]!.itens[0]!.componentes).toBeUndefined();
     expect(p.total).toBe('R$ 5.062,00');
-    expect(p.condicoesPagamento).toBe('Cartão de crédito parcelado em 3x de R$ 1.797,33');
+    expect(p.condicoesPagamento).toBe('Cartão de crédito parcelado em 3x de R$ 1.687,34 sem juros');
     expect(p.avisoConferencia).toBe(true);
     expect(p.rascunho).toBe(true);
     expect(p.garantia).toBe('Contra defeitos de fabricação e instalação, no prazo indicado para cada item abaixo.');
