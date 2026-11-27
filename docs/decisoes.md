@@ -149,4 +149,5 @@ Decididos pelo Gabriel em 27/11/2026 (editáveis em `parametros_sistema` ou no p
 - Fator de franzimento padrão: wave 2,8; prega macho 3,0; franzido 2,5; forro 1,8. O vendedor pode mudar no item.
 - Controle remoto: 1, 6 ou 16 canais (1 canal = 1 peça). O editor soma as peças motorizadas do ambiente e
   sugere o menor controle que cobre todas (acima de 16, vários de 16 + o menor que cobre o resto);
-  o vendedor aplica com "Usar sugestão" ou escolhe à mão. Proposta, a confirmar com o Gabriel.
+  o vendedor aplica com "Usar sugestão" ou escolhe à mão. Regra de canais confirmada; soma por ambiente
+  até o Gabriel decidir se prefere a casa toda.
