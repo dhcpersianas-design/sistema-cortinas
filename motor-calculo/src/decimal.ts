@@ -53,6 +53,14 @@ export class ErroEntrada extends Error {
   }
 }
 
+/** O SKU pedido não existe (ou está inativo) no catálogo. */
+export class ErroSkuNaoEncontrado extends ErroEntrada {
+  constructor(public readonly sku: string) {
+    super(`SKU não encontrado no catálogo: ${sku}`);
+    this.name = 'ErroSkuNaoEncontrado';
+  }
+}
+
 export function positivo(nome: string, v: Numerico): Decimal {
   const x = d(v);
   if (x.lte(0)) throw new ErroEntrada(`${nome} deve ser maior que zero (recebido ${x.toString()})`);

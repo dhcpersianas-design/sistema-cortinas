@@ -1,5 +1,5 @@
 import { Decimal, ceilStep, d, ErroEntrada, naoNegativo, positivo, ZERO, type Numerico } from './decimal.js';
-import { componente, f2, fecharResultado, metaBool, metaNum, metaStr } from './comum.js';
+import { componente, f2, fecharResultado, metaBool, metaNum, metaStr, obterAuxiliar } from './comum.js';
 import type { Alerta, Catalogo, ComponenteCalculado, Produto, ResultadoCalculo } from './tipos.js';
 
 export type ModoCorte = 'HORIZONTAL' | 'VERTICAL_TIRAS';
@@ -178,9 +178,9 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
   const alertas: Alerta[] = [];
   const comps: ComponenteCalculado[] = [];
 
-  const trilho = catalogo.obter(skus.trilho);
-  const ehVarao = metaStr(trilho, 'tipo') === 'VARAO';
-  const vias = metaNum(trilho, 'vias', 1);
+  const trilho = obterAuxiliar(catalogo, skus.trilho, alertas, 'O trilho/varão');
+  const ehVarao = trilho ? metaStr(trilho, 'tipo') === 'VARAO' : false;
+  const vias = trilho ? metaNum(trilho, 'vias', 1) : new Decimal(e.forro ? 2 : 1);
   const peDireitoAlto = H.gt(limitePD);
 
   // ---------- Passo A: tecido principal ----------
@@ -220,7 +220,7 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
     });
     comps.push(componente(pForro, forro.quantidade, forro.log));
     alertaCorte(alertas, 'forro', forro, pForro);
-    if (vias.lt(2)) {
+    if (trilho && vias.lt(2)) {
       alertas.push({
         codigo: 'FORRO_SEM_VIA',
         severidade: 'ATENCAO',
@@ -230,10 +230,11 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
   }
 
   // ---------- Passo B1: mão de obra ----------
-  const minTrilho = metaNum(trilho, 'min_ml', '1.00');
+  const minTrilho = trilho ? metaNum(trilho, 'min_ml', '1.00') : new Decimal('1.00');
   const lTrilhoReal = Decimal.max(L, minTrilho).toDecimalPlaces(2, Decimal.ROUND_UP);
   const mdo = (sku: string, qTecido: Decimal, rotulo: string) => {
-    const p = catalogo.obter(sku);
+    const p = obterAuxiliar(catalogo, sku, alertas, `A confecção (mão de obra do ${rotulo})`);
+    if (!p) return;
     const base = e.baseMaoObra ?? (metaStr(p, 'base') === 'ML_TRILHO' ? 'ML_TRILHO' : 'ML_TECIDO');
     const qtd = base === 'ML_TRILHO' ? lTrilhoReal : qTecido;
     const mult = peDireitoAlto ? metaNum(p, 'fator_pe_direito_alto', '1.30') : new Decimal(1);
@@ -254,14 +255,14 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
   // Vendido em barras de metro inteiro (1 a 6 m). Até 6 m: 1 barra arredondada para cima
   // (1,50 -> 2 m; 2,20 -> 3 m). Acima: barras de 6 m quantas couberem + 1 barra com o resto
   // arredondado (6,10 -> 6 m + 1 m). Sem emenda automática: divisão é decisão do instalador.
-  const passoBarra = metaNum(trilho, 'passo_venda_m', '1.00');
-  const barraMax = metaNum(trilho, 'barra_max', '6.00');
+  const passoBarra = trilho ? metaNum(trilho, 'passo_venda_m', '1.00') : new Decimal('1.00');
+  const barraMax = trilho ? metaNum(trilho, 'barra_max', '6.00') : new Decimal('6.00');
   const barras = decomporBarras(lTrilhoReal, barraMax, passoBarra);
   const qTrilho = barras.reduce((s, b) => s.plus(b.tamanho.mul(b.quantidade)), ZERO);
   const txtBarras = descreverBarras(barras);
-  comps.push(...componentesTrilho(trilho, barras, `Barras: MAX(L_trilho ${f2(L)}, mín ${f2(minTrilho)}) -> ${txtBarras}`));
+  if (trilho) comps.push(...componentesTrilho(trilho, barras, `Barras: MAX(L_trilho ${f2(L)}, mín ${f2(minTrilho)}) -> ${txtBarras}`));
   const totalBarras = barras.reduce((s, b) => s + b.quantidade.toNumber(), 0);
-  if (totalBarras > 1) {
+  if (trilho && totalBarras > 1) {
     alertas.push({
       codigo: 'TRILHO_ACIMA_BARRA_MAX',
       severidade: 'ATENCAO',
@@ -278,14 +279,16 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
         mensagem: 'Cortina Wave exige trilho com deslizantes e cordão espaçador; não é compatível com varão.',
       });
     }
-    const pW = catalogo.obter(skus.deslizanteWave);
-    const w = calcularDeslizantesWave(L, N, metaNum(pW, 'un_por_metro'));
-    comps.push(componente(pW, w.quantidade, w.log));
+    const pW = obterAuxiliar(catalogo, skus.deslizanteWave, alertas, 'O deslizante wave');
+    if (pW) {
+      const w = calcularDeslizantesWave(L, N, metaNum(pW, 'un_por_metro', 15));
+      comps.push(componente(pW, w.quantidade, w.log));
+    }
   }
-  const pComum = catalogo.obter(skus.deslizanteComum);
-  const upmComum = metaNum(pComum, 'un_por_metro', 10);
   const camadasComum = (e.confeccao !== 'WAVE' ? 1 : 0) + (forro ? 1 : 0);
-  if (camadasComum > 0 && !ehVarao) {
+  const pComum = camadasComum > 0 && !ehVarao ? obterAuxiliar(catalogo, skus.deslizanteComum, alertas, 'O deslizante comum') : undefined;
+  if (pComum) {
+    const upmComum = metaNum(pComum, 'un_por_metro', 10);
     const porCamada = L.mul(upmComum).ceil();
     const total = porCamada.mul(camadasComum);
     comps.push(componente(pComum, total, `CEIL(${f2(L)} * ${upmComum.toString()} un/m) * ${camadasComum} camada(s) = ${total.toString()} UN`));
@@ -293,34 +296,38 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
 
   // ---------- Passo B5: fita entretela wave ----------
   if (e.confeccao === 'WAVE') {
-    const pFita = catalogo.obter(skus.fitaWave);
+    const pFita = obterAuxiliar(catalogo, skus.fitaWave, alertas, 'A fita entretela wave');
     const qFita = tec.modoCorte === 'HORIZONTAL' ? tec.quantidade : ceilStep(L.mul(fTecido), passo);
     const log = tec.modoCorte === 'HORIZONTAL'
       ? `= ML tecido principal (corte horizontal) = ${f2(qFita)} ML`
       : `CEIL((${f2(L)} * ${fTecido.toString()}) / ${passo.toString()}) * ${passo.toString()} = ${f2(qFita)} ML`;
-    comps.push(componente(pFita, qFita, log));
+    if (pFita) comps.push(componente(pFita, qFita, log));
   }
 
   // ---------- Passo B6/B7: terminais e fixação ----------
-  if (!ehVarao) {
-    const pTerm = catalogo.obter(skus.terminal);
+  const pTerm = !ehVarao ? obterAuxiliar(catalogo, skus.terminal, alertas, 'O terminal do trilho') : undefined;
+  if (pTerm) {
     const porVia = metaNum(pTerm, 'qtd_por_via', 2);
     const qTerm = porVia.mul(vias);
     comps.push(componente(pTerm, qTerm, `${porVia.toString()} * ${vias.toString()} via(s) = ${qTerm.toString()} UN`));
   }
-  const pFix = catalogo.obter(skus.fixacao);
-  const fix = ehVarao
-    ? calcularSuportesVarao(L)
-    : calcularGarrasTrilho(L, metaNum(pFix, 'espacamento_m', '0.50'), metaNum(pFix, 'min_un', 2));
-  comps.push(componente(pFix, fix.quantidade, fix.log));
+  const pFix = obterAuxiliar(catalogo, skus.fixacao, alertas, 'A fixação (garras/suportes)');
+  if (pFix) {
+    const fix = ehVarao
+      ? calcularSuportesVarao(L)
+      : calcularGarrasTrilho(L, metaNum(pFix, 'espacamento_m', '0.50'), metaNum(pFix, 'min_un', 2));
+    comps.push(componente(pFix, fix.quantidade, fix.log));
+  }
 
   // ---------- Passo B8: instalação (faixas v1.1) ----------
   // Até 3,00 m: SRV-001. Acima: SRV-004 (sem tamanho máximo; 2x o valor de SRV-001).
   const acima3 = L.gt(3);
-  const pInst = catalogo.obter(acima3 ? skus.instalacaoAcima3m : skus.instalacao);
-  comps.push(componente(pInst, new Decimal(1), `1 UN por cortina (trilho ${f2(L)}m ${acima3 ? '> 3,00m' : '<= 3,00m'})`));
+  const pInst = obterAuxiliar(catalogo, acima3 ? skus.instalacaoAcima3m : skus.instalacao, alertas,
+    acima3 ? 'A instalação de cortina acima de 3 m' : 'A instalação de cortina');
+  if (pInst) comps.push(componente(pInst, new Decimal(1), `1 UN por cortina (trilho ${f2(L)}m ${acima3 ? '> 3,00m' : '<= 3,00m'})`));
   if (peDireitoAlto) {
-    comps.push(componente(catalogo.obter(skus.adicionalPeDireitoAlto), new Decimal(1), `Adicional andaime/escada: H_pronta ${f2(H)}m > ${f2(limitePD)}m`));
+    const pPD = obterAuxiliar(catalogo, skus.adicionalPeDireitoAlto, alertas, 'O adicional de andaime/escada');
+    if (pPD) comps.push(componente(pPD, new Decimal(1), `Adicional andaime/escada: H_pronta ${f2(H)}m > ${f2(limitePD)}m`));
   }
 
   // ---------- Alerta de cortineiro ----------
@@ -348,7 +355,7 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
     alturaPronta: f2(H),
     numFolhas: N,
     confeccao: e.confeccao,
-    trilho: { sku: trilho.sku, vias: vias.toNumber(), varao: ehVarao, barras: barras.map((b) => ({ tamanhoM: f2(b.tamanho), quantidade: b.quantidade.toNumber() })) },
+    trilho: { sku: trilho?.sku ?? skus.trilho, vias: vias.toNumber(), varao: ehVarao, barras: barras.map((b) => ({ tamanhoM: f2(b.tamanho), quantidade: b.quantidade.toNumber() })) },
     tecido: fichaCorte(pTecido, fTecido, tec),
     forro: forro && e.forro ? fichaCorte(catalogo.obter(e.forro.sku), d(e.forro.fator ?? FATOR_FORRO_PADRAO), forro) : undefined,
   });

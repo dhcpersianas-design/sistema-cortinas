@@ -1,5 +1,5 @@
 import { Decimal, d, ErroEntrada, naoNegativo, positivo, ZERO, type Numerico } from './decimal.js';
-import { componente, f2, fecharResultado, metaNum } from './comum.js';
+import { componente, f2, fecharResultado, metaNum, obterAuxiliar } from './comum.js';
 import type { Alerta, Catalogo, ComponenteCalculado, ResultadoCalculo } from './tipos.js';
 
 export type ModoInstalacao = 'DENTRO_VAO' | 'FORA_VAO' | 'TETO';
@@ -189,29 +189,35 @@ export function calcularPersiana(e: EntradaPersiana, catalogo: Catalogo): Result
 
   // ---------- Passo B ----------
   if (e.possuiBando) {
-    const p = catalogo.obter(skus.bando);
+    const p = obterAuxiliar(catalogo, skus.bando, alertas, 'O bandô');
     const folga = naoNegativo('folgaBandoM', e.folgaBandoM ?? 0);
-    const min = metaNum(p, 'min_ml', '1.00');
-    const q = Decimal.max(L.plus(folga), min).toDecimalPlaces(2, Decimal.ROUND_UP);
-    comps.push(componente(p, q.mul(nP), `MAX(${f2(L)} + ${f2(folga)}, ${f2(min)}) = ${f2(q)} ML${txtPecas}`));
+    if (p) {
+      const min = metaNum(p, 'min_ml', '1.00');
+      const q = Decimal.max(L.plus(folga), min).toDecimalPlaces(2, Decimal.ROUND_UP);
+      comps.push(componente(p, q.mul(nP), `MAX(${f2(L)} + ${f2(folga)}, ${f2(min)}) = ${f2(q)} ML${txtPecas}`));
+    }
   }
   if (e.possuiGuiaLateral) {
-    const p = catalogo.obter(skus.guiaLateral);
+    const p = obterAuxiliar(catalogo, skus.guiaLateral, alertas, 'A guia lateral');
     const q = H.mul(2).plus(e.possuiCalhaInferior ? L : ZERO).toDecimalPlaces(2, Decimal.ROUND_UP);
-    comps.push(componente(p, q.mul(nP), `2 * ${f2(H)}${e.possuiCalhaInferior ? ` + ${f2(L)} (calha)` : ''} = ${f2(q)} ML${txtPecas}`));
+    if (p) comps.push(componente(p, q.mul(nP), `2 * ${f2(H)}${e.possuiCalhaInferior ? ` + ${f2(L)} (calha)` : ''} = ${f2(q)} ML${txtPecas}`));
   }
+  const aux = (sku: string, oQue: string, qtd: Decimal, log: string) => {
+    const p = obterAuxiliar(catalogo, sku, alertas, oQue);
+    if (p) comps.push(componente(p, qtd, log));
+  };
   if (sugereRedutor && e.incluirRedutorPeso) {
-    comps.push(componente(catalogo.obter(skus.redutorPeso), nP, `1 PC por peça (manual > ${f2(limiteRedutor)}m)`));
+    aux(skus.redutorPeso, 'O redutor de peso', nP, `1 PC por peça (manual > ${f2(limiteRedutor)}m)`);
   }
   if (e.acionamento === 'MOTORIZADO') {
-    comps.push(componente(catalogo.obter(skus.motor), nP, `1 PC por persiana motorizada${txtPecas}`));
+    aux(skus.motor, 'O motor', nP, `1 PC por persiana motorizada${txtPecas}`);
     const qc = e.qtdControles ?? 1;
-    if (qc > 0) comps.push(componente(catalogo.obter(skus.controle), new Decimal(qc), `${qc} PC sugerido por ambiente/orçamento (editável)`));
+    if (qc > 0) aux(skus.controle, 'O controle remoto', new Decimal(qc), `${qc} PC sugerido por ambiente/orçamento (editável)`);
     const qh = e.qtdHubs ?? 0;
-    if (qh > 0) comps.push(componente(catalogo.obter(skus.hub), new Decimal(qh), `${qh} PC no nível do orçamento`));
-    comps.push(componente(catalogo.obter(skus.instalacaoMotorizada), nP, `1 PC por persiana motorizada${txtPecas}`));
+    if (qh > 0) aux(skus.hub, 'O hub Wi-Fi', new Decimal(qh), `${qh} PC no nível do orçamento`);
+    aux(skus.instalacaoMotorizada, 'A instalação de persiana motorizada', nP, `1 PC por persiana motorizada${txtPecas}`);
   } else {
-    comps.push(componente(catalogo.obter(skus.instalacaoManual), nP, `1 PC por persiana manual${txtPecas}`));
+    aux(skus.instalacaoManual, 'A instalação de persiana manual', nP, `1 PC por persiana manual${txtPecas}`);
   }
 
   return fecharResultado('PERSIANA', comps, alertas, {
