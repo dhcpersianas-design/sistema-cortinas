@@ -39,6 +39,8 @@ export const entradaCortina = z.object({
   exigirSimetriaTiras: z.boolean().optional(),
   profundidadeCortineiroM: num.optional(),
   limitePeDireitoAltoM: num.optional(),
+  trilhoMotorizado: sku.optional(),
+  qtdControles: z.number().int().min(0).max(20).optional(),
 });
 
 const folga = z.object({ largura: num, altura: num });
@@ -67,6 +69,14 @@ export const entradaPersiana = z.object({
   qtdHubs: z.number().int().min(0).max(5).optional(),
   numPecas: z.number().int().min(1).max(10).optional(),
   skus: z.record(z.string(), sku).optional(),
+  adicionais: z.array(z.string().trim().toUpperCase().min(1).max(40)).max(20).optional(),
+  modeloAcionamento: z.string().trim().toUpperCase().max(10).optional(),
+});
+
+/** Item só de serviço (sem produto): instalação, conserto, visita técnica... */
+export const entradaServico = z.object({
+  servicos: z.array(z.object({ sku, quantidade: num })).min(1, 'Escolha pelo menos um serviço.').max(20),
+  descricao: textoCurto(300).optional(),
 });
 
 const motivo = textoCurto(200).optional();
@@ -86,6 +96,7 @@ const itemBase = {
 export const itemDocumento = z.discriminatedUnion('tipo', [
   z.object({ ...itemBase, tipo: z.literal('CORTINA'), entrada: entradaCortina }),
   z.object({ ...itemBase, tipo: z.literal('PERSIANA'), entrada: entradaPersiana }),
+  z.object({ ...itemBase, tipo: z.literal('SERVICO'), entrada: entradaServico }),
 ]);
 export type ItemDocumento = z.infer<typeof itemDocumento>;
 

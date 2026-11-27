@@ -42,6 +42,8 @@ export interface SkusCortina {
   instalacaoAcima3m: string;
   /** Adicional de andaime/escada especial quando H_pronta > 3,00 m. */
   adicionalPeDireitoAlto: string;
+  /** Controle remoto da cortina motorizada. */
+  controle?: string;
 }
 
 export const SKUS_CORTINA_PADRAO: SkusCortina = {
@@ -80,6 +82,31 @@ export interface EntradaCortina {
   profundidadeCortineiroM?: Numerico;
   /** Acima desta altura aplica adicional de pé-direito alto. Padrão 3.00. */
   limitePeDireitoAltoM?: Numerico;
+  /**
+   * Cortina motorizada (Gabriel, 27/11/2026): SKU do trilho motorizado (Slim). É o sistema completo,
+   * trilho pronto com motor: substitui trilho comum, deslizantes, terminais e garras. Preço pela
+   * faixa de largura (`metadata.faixas`), máximo 12 m (acima não fabrica).
+   */
+  trilhoMotorizado?: string;
+  /** Controles remotos neste item (só cortina motorizada; não vêm com o trilho). Padrão 1. */
+  qtdControles?: number;
+}
+
+/** Faixa de preço do trilho motorizado: vale a primeira com `ate` >= largura. */
+export interface FaixaTrilhoMotorizado { ate: number; custo: number }
+
+export function precoTrilhoMotorizado(p: Produto, largura: Decimal): { faixa: FaixaTrilhoMotorizado; custo: Decimal; venda: Decimal } {
+  const faixas = ((p.metadata?.['faixas'] ?? []) as FaixaTrilhoMotorizado[])
+    .filter((f) => Number.isFinite(Number(f?.ate)) && Number.isFinite(Number(f?.custo)))
+    .sort((a, b) => Number(a.ate) - Number(b.ate));
+  if (faixas.length === 0) throw new ErroEntrada(`${p.nome}: cadastre as faixas de preço por largura.`);
+  const faixa = faixas.find((f) => largura.lte(f.ate));
+  const max = faixas[faixas.length - 1]!.ate;
+  if (!faixa) throw new ErroEntrada(`${p.nome}: largura ${f2(largura)} m acima do máximo de ${f2(d(max))} m (a fábrica não produz). Divida em mais cortinas.`);
+  const custoTab = d(p.custoUnitario);
+  const fator = custoTab.gt(0) ? d(p.precoVendaUnitario).div(custoTab) : new Decimal(1);
+  const custo = d(faixa.custo);
+  return { faixa, custo, venda: custo.mul(fator).toDecimalPlaces(2, Decimal.ROUND_HALF_UP) };
 }
 
 export interface ResultadoTecido {
@@ -178,9 +205,10 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
   const alertas: Alerta[] = [];
   const comps: ComponenteCalculado[] = [];
 
-  const trilho = obterAuxiliar(catalogo, skus.trilho, alertas, 'O trilho/varão');
+  const pMotor = e.trilhoMotorizado ? catalogo.obter(e.trilhoMotorizado) : undefined;
+  const trilho = pMotor ? undefined : obterAuxiliar(catalogo, skus.trilho, alertas, 'O trilho/varão');
   const ehVarao = trilho ? metaStr(trilho, 'tipo') === 'VARAO' : false;
-  const vias = trilho ? metaNum(trilho, 'vias', 1) : new Decimal(e.forro ? 2 : 1);
+  const vias = pMotor ? metaNum(pMotor, 'vias', 1) : trilho ? metaNum(trilho, 'vias', 1) : new Decimal(e.forro ? 2 : 1);
   const peDireitoAlto = H.gt(limitePD);
 
   // ---------- Passo A: tecido principal ----------
@@ -220,7 +248,7 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
     });
     comps.push(componente(pForro, forro.quantidade, forro.log));
     alertaCorte(alertas, 'forro', forro, pForro);
-    if (trilho && vias.lt(2)) {
+    if ((trilho || pMotor) && vias.lt(2)) {
       alertas.push({
         codigo: 'FORRO_SEM_VIA',
         severidade: 'ATENCAO',
@@ -270,8 +298,28 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
     });
   }
 
+  // ---------- Trilho motorizado (sistema completo: trilho + motor) ----------
+  let faixaMotor: FaixaTrilhoMotorizado | undefined;
+  if (pMotor) {
+    const preco = precoTrilhoMotorizado(pMotor, L);
+    faixaMotor = preco.faixa;
+    comps.push(componente({ ...pMotor, custoUnitario: preco.custo, precoVendaUnitario: preco.venda }, new Decimal(1),
+      `Trilho motorizado: largura ${f2(L)} m -> faixa até ${f2(d(preco.faixa.ate))} m`));
+    const modelo = metaStr(pMotor, 'modelo');
+    const precisa = e.confeccao === 'WAVE' ? 'WAVE' : 'FRANZIDA';
+    if (modelo && modelo !== precisa) {
+      alertas.push({ codigo: 'TRILHO_MOTORIZADO_MODELO', severidade: 'CRITICO',
+        mensagem: `Cortina ${e.confeccao === 'WAVE' ? 'Wave' : 'franzida/prega'} pede o trilho motorizado modelo ${precisa === 'WAVE' ? 'Wave (botão)' : 'Standard (franzida)'}; o escolhido é ${modelo === 'WAVE' ? 'Wave' : 'Standard'}.` });
+    }
+    const qc = e.qtdControles ?? 1;
+    if (qc > 0) {
+      const pc = obterAuxiliar(catalogo, skus.controle ?? 'MOT-002', alertas, 'O controle remoto (não vem com o trilho)');
+      if (pc) comps.push(componente(pc, new Decimal(qc), `${qc} PC (controle remoto não incluso no trilho)`));
+    }
+  }
+
   // ---------- Passo B3/B4: deslizantes ----------
-  if (e.confeccao === 'WAVE') {
+  if (e.confeccao === 'WAVE' && !pMotor) {
     if (ehVarao) {
       alertas.push({
         codigo: 'WAVE_EM_VARAO',
@@ -286,7 +334,7 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
     }
   }
   const camadasComum = (e.confeccao !== 'WAVE' ? 1 : 0) + (forro ? 1 : 0);
-  const pComum = camadasComum > 0 && !ehVarao ? obterAuxiliar(catalogo, skus.deslizanteComum, alertas, 'O deslizante comum') : undefined;
+  const pComum = camadasComum > 0 && !ehVarao && !pMotor ? obterAuxiliar(catalogo, skus.deslizanteComum, alertas, 'O deslizante comum') : undefined;
   if (pComum) {
     const upmComum = metaNum(pComum, 'un_por_metro', 10);
     const porCamada = L.mul(upmComum).ceil();
@@ -305,13 +353,13 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
   }
 
   // ---------- Passo B6/B7: terminais e fixação ----------
-  const pTerm = !ehVarao ? obterAuxiliar(catalogo, skus.terminal, alertas, 'O terminal do trilho') : undefined;
+  const pTerm = !ehVarao && !pMotor ? obterAuxiliar(catalogo, skus.terminal, alertas, 'O terminal do trilho') : undefined;
   if (pTerm) {
     const porVia = metaNum(pTerm, 'qtd_por_via', 2);
     const qTerm = porVia.mul(vias);
     comps.push(componente(pTerm, qTerm, `${porVia.toString()} * ${vias.toString()} via(s) = ${qTerm.toString()} UN`));
   }
-  const pFix = obterAuxiliar(catalogo, skus.fixacao, alertas, 'A fixação (garras/suportes)');
+  const pFix = pMotor ? undefined : obterAuxiliar(catalogo, skus.fixacao, alertas, 'A fixação (garras/suportes)');
   if (pFix) {
     const fix = ehVarao
       ? calcularSuportesVarao(L)
@@ -355,7 +403,8 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
     alturaPronta: f2(H),
     numFolhas: N,
     confeccao: e.confeccao,
-    trilho: { sku: trilho?.sku ?? skus.trilho, vias: vias.toNumber(), varao: ehVarao, barras: barras.map((b) => ({ tamanhoM: f2(b.tamanho), quantidade: b.quantidade.toNumber() })) },
+    trilhoMotorizado: pMotor ? { sku: pMotor.sku, modelo: metaStr(pMotor, 'modelo'), cor: metaStr(pMotor, 'cor'), faixaAteM: faixaMotor?.ate } : undefined,
+    trilho: pMotor ? undefined : { sku: trilho?.sku ?? skus.trilho, vias: vias.toNumber(), varao: ehVarao, barras: barras.map((b) => ({ tamanhoM: f2(b.tamanho), quantidade: b.quantidade.toNumber() })) },
     tecido: fichaCorte(pTecido, fTecido, tec),
     forro: forro && e.forro ? fichaCorte(catalogo.obter(e.forro.sku), d(e.forro.fator ?? FATOR_FORRO_PADRAO), forro) : undefined,
   });

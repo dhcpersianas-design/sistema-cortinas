@@ -123,7 +123,7 @@ const SELECT_CABECALHO = sql`
     LEFT JOIN pedidos ped ON ped.grupo_orcamento_id = o.grupo_id`;
 
 type LinhaItem = {
-  id: string; ambiente: string; tipo: 'CORTINA' | 'PERSIANA'; descricaoComercial: string; ordem: number;
+  id: string; ambiente: string; tipo: 'CORTINA' | 'PERSIANA' | 'SERVICO'; descricaoComercial: string; ordem: number;
   larguraBruta: string | null; alturaBruta: string | null; larguraProducao: string; alturaProducao: string;
   entrada: Record<string, unknown>; ajustes: Ajuste[]; hash: string | null; alertas: unknown[]; especificacaoTecnica: Record<string, unknown>;
   custoTotal: string; vendaTotal: string; descontoRateado: string; vendaLiquida: string; calculadoEm: string;
@@ -341,7 +341,7 @@ function diferencas(base: Awaited<ReturnType<typeof lerDocumento>> | null, novo:
   }
   for (const i of novo.itens) {
     const b = porId.get(i.id);
-    if (!b) { regs.push({ acao: 'ITEM_INCLUIDO', itemId: i.id, descricao: `Item incluído em ${i.ambiente} (${i.tipo === 'CORTINA' ? 'cortina' : 'persiana'}).` }); continue; }
+    if (!b) { regs.push({ acao: 'ITEM_INCLUIDO', itemId: i.id, descricao: `Item incluído em ${i.ambiente} (${i.tipo === 'CORTINA' ? 'cortina' : i.tipo === 'PERSIANA' ? 'persiana' : 'serviço'}).` }); continue; }
     if (b.ambiente !== i.ambiente) regs.push({ acao: 'ITEM_ALTERADO', itemId: i.id, descricao: `Item mudou de ambiente: ${b.ambiente} -> ${i.ambiente}.` });
     if (jsonEstavel(b.entrada) !== jsonEstavel(i.entrada)) {
       regs.push({ acao: 'ITEM_ALTERADO', itemId: i.id, descricao: `Medidas/opções alteradas em ${i.ambiente}.`, detalhes: { de: b.entrada, para: i.entrada } });
@@ -486,7 +486,7 @@ export async function salvarDocumento(db: Banco, u: UsuarioSessao, id: string, e
       if (!pode(u, 'orcamentos.proprios')) throw new ErroOrcamento('Seu perfil não cria orçamentos.', 403);
       if (!(await clienteDoEscopo(tx, u, e.clienteId))) throw new ErroOrcamento('Cliente não encontrado ou de outro vendedor.', 400);
       const validade = (await parametro(tx as unknown as Banco, u.lojaId, 'VALIDADE_ORCAMENTO_DIAS')) ?? '15';
-      const prazo = (await parametro(tx as unknown as Banco, u.lojaId, 'PRAZO_ENTREGA_DIAS_UTEIS')) ?? '14';
+      const prazo = (await parametro(tx as unknown as Banco, u.lojaId, 'PRAZO_ENTREGA_DIAS_UTEIS')) ?? '12';
       await tx.execute(sql`
         INSERT INTO orcamentos (id, grupo_id, loja_id, codigo_sequencial, versao, cliente_id, vendedor_id, criado_por_id,
           validade_ate, prazo_entrega_dias)

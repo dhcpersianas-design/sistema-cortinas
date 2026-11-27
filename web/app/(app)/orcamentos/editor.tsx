@@ -103,13 +103,43 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
     } finally { setSalvando(false); }
   }
 
+  /**
+   * WhatsApp (Gabriel, 27/11/2026): só o PDF anexado + mensagem de envio para conferência,
+   * sem link e sem valores. No celular abre o "compartilhar" com o PDF e o texto (escolha o
+   * WhatsApp). Onde não dá para anexar (computador), baixa o PDF e abre o WhatsApp com o texto.
+   */
+  const [envio, setEnvio] = useState<{ arquivo: File; mensagem: string; whatsapp: string | null } | null>(null);
+  async function compartilhar(x: { arquivo: File; mensagem: string; whatsapp: string | null }) {
+    const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+    if (nav.share && nav.canShare?.({ files: [x.arquivo] })) {
+      try {
+        await nav.share({ files: [x.arquivo], text: x.mensagem, title: x.arquivo.name });
+        setEnvio(null);
+        return;
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') { setEnvio(null); return; }
+        // Navegador exige um toque novo depois de baixar o PDF: mostra o botão "Enviar agora".
+        if ((e as Error).name === 'NotAllowedError') { setEnvio(x); return; }
+      }
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(x.arquivo);
+    a.download = x.arquivo.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    if (x.whatsapp) window.open(x.whatsapp, '_blank', 'noopener');
+    setOk('PDF baixado. No WhatsApp que abriu, anexe o PDF junto com a mensagem.');
+    setEnvio(null);
+  }
   async function whatsapp() {
-    setErro(null);
+    setErro(null); setOk(null);
     try {
-      const r = await chamar<{ whatsapp: string | null; url: string }>(`/api/orcamentos/${id}/link-publico`, 'POST', { detalhar, origem: window.location.origin });
-      if (r.whatsapp) window.open(r.whatsapp, '_blank', 'noopener');
-      else setOk(`Link da proposta: ${r.url}`);
-    } catch (e) { setErro(e instanceof ErroApi ? e.message : 'Sem internet: o link precisa de conexão.'); }
+      const r = await chamar<{ mensagem: string; whatsapp: string | null; arquivo: string; pdf: string }>(`/api/orcamentos/${id}/mensagem-whatsapp`, 'POST', {});
+      const resp = await fetch(`${r.pdf}${detalhar ? '?detalhar=1' : ''}`, { credentials: 'same-origin' });
+      if (!resp.ok) throw new ErroApi((await resp.json().catch(() => ({}))).erro ?? 'Não foi possível gerar o PDF.', resp.status, {});
+      const arquivo = new File([await resp.blob()], r.arquivo, { type: 'application/pdf' });
+      await compartilhar({ arquivo, mensagem: r.mensagem, whatsapp: r.whatsapp });
+    } catch (e) { setErro(e instanceof ErroApi ? e.message : 'Sem internet: o envio precisa de conexão.'); }
   }
 
   /** Cliente aprovou: o orçamento vira pedido (precisa de internet). */
@@ -146,8 +176,7 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
   const lib = doc.liberacao;
   const ultimaVersao = !doc.versaoMaisNovaId || doc.versaoMaisNovaId === doc.id;
   /** Controle é pela casa toda (Gabriel, 27/11/2026): se já há um no orçamento, a nova persiana vem sem. */
-  const temControleNoOrcamento = (ignorar?: string) => doc.itens.some((i) => i.id !== ignorar && i.tipo === 'PERSIANA'
-    && (i.entrada as { acionamento?: string; qtdControles?: number }).acionamento === 'MOTORIZADO'
+  const temControleNoOrcamento = (ignorar?: string) => doc.itens.some((i) => i.id !== ignorar && ehMotorizado(i)
     && ((i.entrada as { qtdControles?: number }).qtdControles ?? 1) > 0);
 
   function salvarItem(item: Item) {
@@ -156,9 +185,14 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
     aplicar({ ...doc!, itens }, { mensagem: existe ? 'Item atualizado.' : 'Item incluído.' }).then((foi) => { if (foi) setForm(null); });
   }
   type EntradaPersiana = { acionamento?: string; qtdControles?: number; numPecas?: number; skus?: Record<string, string> };
+  /** Peça motorizada: persiana motorizada ou cortina com trilho motorizado (os dois usam controle remoto). */
+  function ehMotorizado(i: Item) {
+    if (i.tipo === 'PERSIANA') return (i.entrada as EntradaPersiana).acionamento === 'MOTORIZADO';
+    return i.tipo === 'CORTINA' && Boolean((i.entrada as { trilhoMotorizado?: string }).trilhoMotorizado);
+  }
   /** Controles da casa toda: soma as peças motorizadas do orçamento; cada canal aciona 1 peça (Gabriel, 27/11/2026). */
   function controlesDaCasa(itens: Item[]) {
-    const motorizadas = itens.filter((i) => i.tipo === 'PERSIANA' && (i.entrada as EntradaPersiana).acionamento === 'MOTORIZADO');
+    const motorizadas = itens.filter(ehMotorizado);
     if (motorizadas.length === 0) return null;
     const pecas = motorizadas.reduce((s, i) => s + ((i.entrada as EntradaPersiana).numPecas ?? 1), 0);
     const opcoes = produtos.filter((p) => Number(p.metadata?.canais) > 0).map((p) => ({ sku: p.sku, canais: Number(p.metadata.canais) }));
@@ -299,7 +333,7 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
                         <div>
                           <p className="font-medium">{i.descricaoComercial || 'Item'}</p>
                           <p className="text-xs text-muted-foreground">
-                            Produção {metros(i.larguraProducao)} x {metros(i.alturaProducao)}
+                            {i.tipo === 'SERVICO' ? 'Só serviço' : <>Produção {metros(i.larguraProducao)} x {metros(i.alturaProducao)}</>}
                             {i.ajustes.length > 0 && ` · ${i.ajustes.length} ajuste(s) manual(is)`}
                           </p>
                         </div>
@@ -436,6 +470,7 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
               </Button>
             )}
             {doc.status !== 'RASCUNHO' && doc.status !== 'PERDIDO' && ultimaVersao && <Button variant="outline" onClick={whatsapp}>Mandar no WhatsApp</Button>}
+            {envio && <Button onClick={() => compartilhar(envio)}>Enviar agora (PDF + mensagem)</Button>}
             {transicoes.includes('AGUARDANDO_MEDICAO') && <Button variant="outline" onClick={() => acao(`/api/orcamentos/${id}/status`, { status: 'AGUARDANDO_MEDICAO' }, 'Aguardando medição.')}>Aguardando medição</Button>}
             {transicoes.includes('EM_NEGOCIACAO') && <Button variant="outline" onClick={() => acao(`/api/orcamentos/${id}/status`, { status: 'EM_NEGOCIACAO' }, 'Em negociação.')}>Em negociação</Button>}
             {!doc.editavel && ultimaVersao && ['ENVIADO', 'AGUARDANDO_MEDICAO', 'EM_NEGOCIACAO', 'EXPIRADO'].includes(doc.status) && (

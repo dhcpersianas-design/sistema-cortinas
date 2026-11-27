@@ -23,7 +23,7 @@ export type Componente = {
 };
 export type Alerta = { codigo: string; severidade: string; mensagem: string; skuSugerido?: string };
 export type Item = {
-  id: string; ambiente: string; tipo: 'CORTINA' | 'PERSIANA'; descricaoComercial: string;
+  id: string; ambiente: string; tipo: 'CORTINA' | 'PERSIANA' | 'SERVICO'; descricaoComercial: string;
   entrada: Record<string, unknown>; ajustes: Ajuste[];
   larguraProducao?: string; alturaProducao?: string;
   vendaTotal?: string; custoTotal?: string; descontoRateado?: string; vendaLiquida?: string;

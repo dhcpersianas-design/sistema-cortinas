@@ -202,6 +202,7 @@ export async function pdfProducao(db: Banco, pedidoId: string, tipo: 'CORTINA' |
         ['Folhas', String(e.numFolhas ?? '-')], ['Confecção', CONFECCAO[String(e.confeccao)] ?? String(e.confeccao ?? '-')],
         ['Cortineiro (profundidade)', e.profundidadeCortineiroM ? m2(e.profundidadeCortineiroM) : null],
         ['Trilho', trilho.sku ? `${trilho.sku}${trilho.vias ? ` · ${trilho.vias} via(s)` : ''}${trilho.varao ? ' · varão' : ''}` : null],
+        ['Trilho motorizado', obj(esp.trilhoMotorizado).sku ? `${obj(esp.trilhoMotorizado).sku} · ${obj(esp.trilhoMotorizado).modelo ?? ''} ${obj(esp.trilhoMotorizado).cor ?? ''} · faixa até ${num(obj(esp.trilhoMotorizado).faixaAteM)} m` : null],
         ['Barras', barras.length ? barras.map((x) => `${x.quantidade}x ${num(x.tamanhoM)} m`).join(' + ') : null],
       ]);
       const camada = (rot: string, c: Esp, ent: Esp) => [
@@ -224,6 +225,8 @@ export async function pdfProducao(db: Banco, pedidoId: string, tipo: 'CORTINA' |
         ['Vão bruto', vao.largura ? `${m2(vao.largura)} x ${m2(vao.altura)}${vao.modo ? ` · ${MODO_VAO[String(vao.modo)] ?? vao.modo}` : ''}` : null],
         ['Peças', String(esp.numPecas ?? 1)], ['Produto', String(esp.sku ?? '-')],
         ['Acionamento', esp.acionamento === 'MOTORIZADO' ? 'Motorizado' : 'Manual'],
+        ['Modelo de acionamento', esp.modeloAcionamento ? String(esp.modeloAcionamento) : null],
+        ['Opcionais', Array.isArray(esp.adicionais) && esp.adicionais.length ? esp.adicionais.join(', ') : null],
         ['Lado do comando', LADO[String(esp.ladoComando)] ?? String(esp.ladoComando ?? '-')],
         ['Enrolamento', ENROLAMENTO[String(esp.sentidoEnrolamento)] ?? String(esp.sentidoEnrolamento ?? '-')],
         ['Fixação', FIXACAO[String(esp.fixacao)] ?? (esp.fixacao ? String(esp.fixacao) : 'Não informada')],
@@ -305,6 +308,11 @@ export async function pdfOrdemServico(db: Banco, pedidoId: string): Promise<Buff
   pdf.secao('O que instalar (por ambiente)');
   for (const [n, i] of b.itens.entries()) {
     const esp = obj(i.especificacaoTecnica);
+    if (i.tipo === 'SERVICO') {
+      pdf.texto(`${n + 1}. ${i.ambiente}: ${i.descricaoComercial}`, { negrito: true });
+      pdf.texto('Serviço (sem peça nova da loja).', { tamanho: 8.5, cor: CINZA });
+      continue;
+    }
     const detalhes = i.tipo === 'PERSIANA'
       ? [esp.acionamento === 'MOTORIZADO' ? 'motorizada' : 'manual', esp.ladoComando ? `comando ${String(LADO[String(esp.ladoComando)] ?? esp.ladoComando).toLowerCase()}` : null,
         esp.fixacao ? `fixação no(a) ${String(FIXACAO[String(esp.fixacao)] ?? esp.fixacao).toLowerCase()}` : null, Number(esp.numPecas ?? 1) > 1 ? `${esp.numPecas} peças` : null]
@@ -319,6 +327,7 @@ export async function pdfOrdemServico(db: Banco, pedidoId: string): Promise<Buff
   pdf.secao('Peças para conferir no carro antes de sair');
   const linhas: string[][] = [];
   for (const i of b.itens) {
+    if (i.tipo === 'SERVICO') continue;
     linhas.push(['', `${i.ambiente}: ${i.tipo === 'CORTINA' ? 'cortina pronta' : 'persiana'} ${m2(i.larguraProducao)} x ${m2(i.alturaProducao)}`, '1']);
     for (const c of i.componentes) {
       const cat = b.categoria.get(c.sku);

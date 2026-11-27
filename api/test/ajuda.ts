@@ -15,8 +15,19 @@ export async function bancoLimpo(): Promise<pg.Pool> {
   const pool = new pg.Pool({ connectionString: URL_TESTE });
   await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
   await migrar(pool);
+  await tirarTabelasFornecedores(pool);
   await pool.query(readFileSync(ARQUIVO_EXEMPLO, 'utf-8'));
   return pool;
+}
+
+/**
+ * Os testes usam o catálogo fictício da especificação: tira os ~500 produtos reais que a
+ * migração 0014 cadastra (tabelas do Armazém, Cortineiro e Slim), que só valem em produção.
+ */
+export async function tirarTabelasFornecedores(pool: pg.Pool) {
+  const reais = `SELECT id FROM produtos WHERE sku ~ '^(ARM|COR|SLI)[A-Z]{3}-[0-9]{4}$'`;
+  await pool.query(`DELETE FROM precos_barra_trilho WHERE produto_id IN (${reais})`);
+  await pool.query(`DELETE FROM produtos WHERE id IN (${reais})`);
 }
 
 export async function criarUsuario(pool: pg.Pool, u: { email: string; perfil: 'ADMIN' | 'VENDEDOR'; podeVerCustos?: boolean; ativo?: boolean }) {

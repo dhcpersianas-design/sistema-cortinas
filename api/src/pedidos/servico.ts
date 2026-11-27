@@ -164,7 +164,7 @@ async function mudarStatus(tx: Exec, p: Pick<CabecalhoPedido, 'id' | 'status'>, 
 
 /** Previsão de entrega: prazo do orçamento (dias úteis) contado a partir de hoje, o dia em que as medidas foram conferidas. */
 async function previsaoEntrega(tx: Exec, p: Pick<CabecalhoPedido, 'lojaId' | 'prazoEntregaDias'>, inicio = hojeLoja()): Promise<string> {
-  const prazo = p.prazoEntregaDias ?? Number((await parametro(tx as Banco, p.lojaId, 'PRAZO_ENTREGA_DIAS_UTEIS')) ?? 14);
+  const prazo = p.prazoEntregaDias ?? Number((await parametro(tx as Banco, p.lojaId, 'PRAZO_ENTREGA_DIAS_UTEIS')) ?? 12);
   return somarDiasUteis(inicio, prazo);
 }
 

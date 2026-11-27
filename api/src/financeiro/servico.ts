@@ -160,7 +160,7 @@ async function pedidoFin(db: Exec, pedidoId: string): Promise<PedidoFin> {
 async function vencimentoSaldo(db: Exec, p: PedidoFin): Promise<string> {
   if (p.instalacao) return p.instalacao;
   if (p.previsao) return p.previsao;
-  const prazo = Number((await parametro(db as Banco, p.lojaId, 'PRAZO_ENTREGA_DIAS_UTEIS')) ?? 14);
+  const prazo = Number((await parametro(db as Banco, p.lojaId, 'PRAZO_ENTREGA_DIAS_UTEIS')) ?? 12);
   return somarDiasUteis(hojeLoja(), prazo);
 }
 

@@ -76,7 +76,7 @@ describe('configurador de orçamento', () => {
     expect(o.totais.margemLiquidaPct).toBe('60.12');
     expect(o.totais.semaforo).toBe('VERDE');
     expect(o.condicoes.validadeAte).toBeTruthy();
-    expect(o.condicoes.prazoEntregaDias).toBe(14);
+    expect(o.condicoes.prazoEntregaDias).toBe(12);
   });
 
   it('cliente de outro vendedor é recusado e o vendedor só vê os próprios orçamentos', async () => {
@@ -375,7 +375,7 @@ describe('proposta em PDF', () => {
     expect(p.rascunho).toBe(true);
     expect(p.garantia).toBe('Contra defeitos de fabricação e instalação, no prazo indicado para cada item abaixo.');
     expect(p.ambientes.map((a) => a.itens[0]!.garantia)).toEqual(['12 meses', '2 anos; motor 5 anos']);
-    expect(p.prazoEntrega).toMatch(/^14 dias úteis \(sem contar sábado e domingo\)/);
+    expect(p.prazoEntrega).toMatch(/^12 dias úteis \(sem contar sábado e domingo\)/);
     expect(JSON.stringify(p)).not.toMatch(/custo|1053|2018/i);
     const det = (await montarProposta(app.db, id, true))!;
     expect(det.ambientes[0]!.itens[0]!.componentes).toHaveLength(11);
