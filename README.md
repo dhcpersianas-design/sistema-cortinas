@@ -8,8 +8,8 @@ construído a partir da *Especificação Técnica ERP Cortinas e Persianas* v1.1
 | Pasta | Conteúdo | Estado |
 |---|---|---|
 | [`motor-calculo/`](motor-calculo/README.md) | Motor de cálculo (decimal exato, explosão BOM, alertas técnicos) | Pronto, 63 testes |
-| `api/` | API Fastify + PostgreSQL: migrações, login, perfis, catálogo, cálculo | Fundação |
-| `web/` | Next.js + Tailwind (padrão shadcn/ui), PWA: login, painel, equipe, catálogo | Fundação |
+| `api/` | API Fastify + PostgreSQL: migrações, login, perfis, clientes, fornecedores, catálogo com histórico de preços, cálculo | Fase 1 |
+| `web/` | Next.js + Tailwind (padrão shadcn/ui), PWA: login, painel, equipe, clientes (offline), fornecedores, catálogo e preços | Fase 1 |
 | [`docs/`](docs/decisoes.md) | Decisões da fundação e arquitetura offline | |
 
 Perfis de acesso: só **ADMIN** (acesso total) e **VENDEDOR** (vendedor em campo).
@@ -31,8 +31,9 @@ npm run dev:api                     # API em http://localhost:3333
 npm run dev:web                     # app em http://localhost:3000
 ```
 
-Preços do trilho por barra: preencha `motor-calculo/dados/precos-barra-trilho.csv` e rode
-`npm run precos-barra:importar`.
+Preços do trilho por barra: na tela **Catálogo**, abra o trilho e preencha a tabela de 1 a 6 m
+(fica no histórico de preços). A planilha `motor-calculo/dados/precos-barra-trilho.csv` continua
+servindo para importação em lote com `npm run precos-barra:importar`.
 
 ## Testes
 

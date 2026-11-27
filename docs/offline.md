@@ -17,6 +17,20 @@ precisa usar o sistema na obra mesmo sem internet.
   nascem com o ID definitivo, sem colisão na hora de sincronizar.
 - **Sessão de 30 dias**: o vendedor não precisa logar de novo na obra.
 
+## Clientes offline (pronto nos cadastros)
+
+- Ao abrir **Clientes** com internet, o app baixa os clientes do vendedor (`GET /api/clientes/pacote-offline`)
+  para o IndexedDB do aparelho (`web/lib/clientes-offline.ts`).
+- Sem internet: busca sem acento no aparelho, ficha do cliente e cadastro/edição vão para uma fila local.
+  A barra mostra "Sem internet" e "N alterações aguardando envio".
+- Quando a conexão volta (evento `online` ou ao abrir a tela), a fila é enviada em ordem. O cadastro nasce
+  com UUID gerado no aparelho, e o servidor não duplica se receber duas vezes.
+- Edição carrega o `atualizadoEm` que o aparelho tinha; se o cliente mudou no servidor depois, a API
+  responde 409 e **não sobrescreve**. O app guarda a versão do servidor e mostra a alteração recusada.
+- O catálogo continua no cache do service worker; `/clientes` e `/catalogo` já ficam guardados na
+  instalação do app, para abrir na obra mesmo sem visita anterior.
+- Histórico de compras na ficha só aparece com internet.
+
 ## Próximas etapas (com medição e orçamento, Fase 2)
 
 0. **Pacote para o dia**: ao abrir com internet, o app baixa agenda do dia, clientes,
