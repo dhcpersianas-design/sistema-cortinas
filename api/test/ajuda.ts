@@ -28,8 +28,8 @@ export async function criarUsuario(pool: pg.Pool, u: { email: string; perfil: 'A
   return rows[0]!.id;
 }
 
-export async function appTeste(limiteLoginPorMinuto = 1000): Promise<FastifyInstance> {
-  return criarApp({ databaseUrl: URL_TESTE, porta: 0, sessaoDias: 30, cookieSeguro: false, limiteLoginPorMinuto }, { log: false });
+export async function appTeste(limiteLoginPorMinuto = 1000, extra: { pastaBackups?: string; backupsManter?: number } = {}): Promise<FastifyInstance> {
+  return criarApp({ databaseUrl: URL_TESTE, porta: 0, sessaoDias: 30, cookieSeguro: false, limiteLoginPorMinuto, ...extra }, { log: false });
 }
 
 /** Faz login e devolve o cabeçalho Cookie para as próximas chamadas. */
