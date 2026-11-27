@@ -300,9 +300,14 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
                           {verCustoDoc && i.custoTotal && <p className="text-xs text-muted-foreground">custo {moeda(i.custoTotal)}</p>}
                         </div>
                       </div>
-                      {i.alertas?.map((a) => (
-                        <p key={a.codigo + a.mensagem} className={`mt-2 rounded border px-2 py-1 text-xs ${a.severidade === 'CRITICO' ? 'border-red-500/50 text-red-700 dark:text-red-400' : 'border-amber-500/40 text-amber-700 dark:text-amber-400'}`}>{a.mensagem}</p>
-                      ))}
+                      {(i.alertas?.length ?? 0) > 0 && (
+                        <div role="alert" className="mt-2 space-y-1">
+                          <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">⚠ Atenção (só para você, não vai para a proposta)</p>
+                          {i.alertas!.map((a) => (
+                            <p key={a.codigo + a.mensagem} className={`rounded border px-2 py-1 text-sm ${a.severidade === 'CRITICO' ? 'border-red-500/60 bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-300' : 'border-amber-500/60 bg-amber-50 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200'}`}>{a.mensagem}</p>
+                          ))}
+                        </div>
+                      )}
                       <div className="mt-2 flex flex-wrap gap-2">
                         <Button size="sm" variant="outline" onClick={() => setAbertos((s) => { const n = new Set(s); if (n.has(i.id)) n.delete(i.id); else n.add(i.id); return n; })}>
                           {abertos.has(i.id) ? 'Ocultar componentes' : `Componentes (${i.componentes?.length ?? 0})`}

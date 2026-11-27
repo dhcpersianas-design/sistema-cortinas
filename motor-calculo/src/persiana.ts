@@ -155,6 +155,27 @@ export function calcularPersiana(e: EntradaPersiana, catalogo: Catalogo): Result
   });
   comps.push(componente(pPer, area.areaFaturavel.mul(nP), `${med.log}; ${area.log}${txtPecas}`));
 
+  // Regras do modelo (metadata do catálogo): avisam o vendedor; nada disso vai para o PDF do cliente.
+  const lMin = metaNum(pPer, 'larg_min', 0);
+  const aMin = metaNum(pPer, 'alt_min', 0);
+  const areaMin = metaNum(pPer, 'area_min', 0);
+  if (lMin.gt(0) && L.lt(lMin)) {
+    alertas.push({ codigo: 'LARGURA_ABAIXO_MINIMO', severidade: 'ATENCAO',
+      mensagem: `Largura ${f2(L)}m abaixo da mínima de ${f2(lMin)}m deste modelo: cobrada como ${f2(lMin)}m. Confirme com a fábrica se produz.` });
+  }
+  if (aMin.gt(0) && H.lt(aMin)) {
+    alertas.push({ codigo: 'ALTURA_ABAIXO_MINIMO', severidade: 'ATENCAO',
+      mensagem: `Altura ${f2(H)}m abaixo da mínima cobrada de ${f2(aMin)}m deste modelo: cobrada como ${f2(aMin)}m.` });
+  }
+  if (areaMin.gt(0) && L.mul(H).lt(areaMin)) {
+    alertas.push({ codigo: 'AREA_ABAIXO_MINIMO', severidade: 'ATENCAO',
+      mensagem: `Área de ${f2(L.mul(H))}m² por peça abaixo da mínima de ${f2(areaMin)}m² deste modelo: cobrada pela área mínima (${f2(area.areaFaturavel)}m²).` });
+  }
+  const aMax = pPer.metadata?.['alt_max'] !== undefined ? metaNum(pPer, 'alt_max') : undefined;
+  if (aMax && H.gt(aMax)) {
+    alertas.push({ codigo: 'ALTURA_EXCEDE_MAXIMO', severidade: 'CRITICO',
+      mensagem: `Altura ${f2(H)}m acima da máxima de ${f2(aMax)}m deste modelo. Consulte a fábrica antes de vender.` });
+  }
   const lMax = pPer.metadata?.['larg_max'] !== undefined ? metaNum(pPer, 'larg_max') : undefined;
   if (lMax && L.gt(lMax)) {
     alertas.push({

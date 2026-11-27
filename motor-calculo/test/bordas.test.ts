@@ -112,8 +112,17 @@ describe('Persiana: alertas técnicos', () => {
   });
 
   it('telescopagem quando H > 2,5 x L', () => {
-    expect(codigos(calcularPersiana(persiana({ medida: { tipo: 'PRODUCAO', largura: '0.60', altura: '1.80' } }), catalogoSeed))).toEqual(['RISCO_TELESCOPAGEM']);
-    expect(codigos(calcularPersiana(persiana({ medida: { tipo: 'PRODUCAO', largura: '0.60', altura: '1.50' } }), catalogoSeed))).toEqual([]);
+    expect(codigos(calcularPersiana(persiana({ medida: { tipo: 'PRODUCAO', largura: '0.60', altura: '1.80' } }), catalogoSeed))).toEqual(['AREA_ABAIXO_MINIMO', 'RISCO_TELESCOPAGEM']);
+    expect(codigos(calcularPersiana(persiana({ medida: { tipo: 'PRODUCAO', largura: '0.60', altura: '1.50' } }), catalogoSeed))).toEqual(['AREA_ABAIXO_MINIMO']);
+  });
+
+  it('regras do modelo: área e altura abaixo do mínimo e altura acima do máximo avisam o vendedor', () => {
+    expect(codigos(calcularPersiana(persiana({ medida: { tipo: 'PRODUCAO', largura: '1.20', altura: '1.00' } }), catalogoSeed)))
+      .toEqual(['ALTURA_ABAIXO_MINIMO', 'AREA_ABAIXO_MINIMO']);
+    const cat = criarCatalogo(PRODUTOS_SEED.map((p) => (p.sku === 'PER-001' ? { ...p, metadata: { ...p.metadata, larg_min: 0.4, alt_max: 3.0 } } : p)));
+    const r = calcularPersiana(persiana({ medida: { tipo: 'PRODUCAO', largura: '0.30', altura: '3.20' } }), cat);
+    expect(codigos(r)).toEqual(expect.arrayContaining(['LARGURA_ABAIXO_MINIMO', 'ALTURA_EXCEDE_MAXIMO']));
+    expect(r.alertas.find((a) => a.codigo === 'ALTURA_EXCEDE_MAXIMO')!.severidade).toBe('CRITICO');
   });
 
   it('dividir vão em 2 peças elimina o alerta de largura e fatura por peça', () => {
