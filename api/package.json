@@ -1,0 +1,34 @@
+{
+  "name": "@sistema/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../.env src/servidor.ts",
+    "start": "node --env-file-if-exists=../.env dist/servidor.js",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:migrar": "tsx --env-file-if-exists=../.env src/scripts/migrar.ts",
+    "db:exemplo": "tsx --env-file-if-exists=../.env src/scripts/carregar-exemplo.ts",
+    "admin:criar": "tsx --env-file-if-exists=../.env src/scripts/criar-admin.ts",
+    "precos-barra:importar": "tsx --env-file-if-exists=../.env src/scripts/importar-precos-barra.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/rate-limit": "^10.3.0",
+    "@sistema/motor-calculo": "0.1.0",
+    "drizzle-orm": "^0.44.7",
+    "fastify": "^5.6.2",
+    "fastify-plugin": "^5.1.0",
+    "pg": "^8.16.3",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.7",
+    "@types/pg": "^8.15.6",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  }
+}
