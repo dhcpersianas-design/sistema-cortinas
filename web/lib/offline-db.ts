@@ -7,10 +7,14 @@
  *  - orcamentos: orçamentos do vendedor no aparelho (os com `pendente` ainda não foram enviados)
  *  - instalacoes: instalações agendadas do vendedor (pacote para a obra)
  *  - aceites: aceites assinados na obra ainda não enviados
+ *  - medicoes: visitas de medição do usuário (pacote para a obra)
+ *  - medicoesPendentes: vãos medidos na obra ainda não enviados (1 por medição)
+ *  - fotosPendentes: fotos do vão ainda não enviadas
+ *  - medicoesOps: marcar, remarcar, cancelar e conferir visita feitos sem internet (em ordem)
  */
 const NOME = 'sistema-cortinas';
-const VERSAO = 3;
-export type Store = 'clientes' | 'fila' | 'meta' | 'orcamentos' | 'instalacoes' | 'aceites';
+const VERSAO = 5;
+export type Store = 'clientes' | 'fila' | 'meta' | 'orcamentos' | 'instalacoes' | 'aceites' | 'medicoes' | 'medicoesPendentes' | 'fotosPendentes' | 'medicoesOps';
 
 let aberto: Promise<IDBDatabase> | null = null;
 
@@ -26,6 +30,10 @@ function abrir(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('orcamentos')) db.createObjectStore('orcamentos', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('instalacoes')) db.createObjectStore('instalacoes', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('aceites')) db.createObjectStore('aceites', { keyPath: 'pedidoId' });
+      if (!db.objectStoreNames.contains('medicoes')) db.createObjectStore('medicoes', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('medicoesPendentes')) db.createObjectStore('medicoesPendentes', { keyPath: 'medicaoId' });
+      if (!db.objectStoreNames.contains('fotosPendentes')) db.createObjectStore('fotosPendentes', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('medicoesOps')) db.createObjectStore('medicoesOps', { keyPath: 'idOperacao' });
     };
     r.onsuccess = () => ok(r.result);
     r.onerror = () => { aberto = null; falha(r.error); };

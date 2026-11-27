@@ -190,3 +190,19 @@ Suposições (confirmar com o Gabriel):
   confere medidas, abre aditivo, vê a agenda e a OS dele e colhe o aceite.
 - Contas a receber/pagar automáticas ficam para a fase do financeiro (aqui só o sinal e o saldo a receber).
 - Fotos do vão e agenda de medição ainda não existem.
+
+## Agenda e medição (migração 0009), 27/11/2026
+
+- A visita de medição é marcada para um cliente; o orçamento (ou pedido) é opcional, porque a visita pode
+  vir antes do orçamento. Proposta enviada + visita marcada = orçamento "Aguardando medição".
+- Quem mede é um usuário do sistema (o vendedor). VENDEDOR marca só para os clientes dele e fica como
+  responsável; ADMIN escolhe o responsável e vê a agenda da equipe. Aviso (sem bloquear) quando o
+  responsável já tem compromisso a menos de 2 horas.
+- Vãos em JSON na própria medição (ambiente, produto, modo, até 3 larguras e 3 alturas em metros, lado do
+  comando, cortineiro). Persiana dentro do vão: vale a menor medida (o motor já faz isso).
+- Fotos do vão no próprio banco (BYTEA), como a assinatura do aceite: entram no backup diário. Até 80 por medição.
+- Conferência: no pedido em "Conferência de medidas", sem alteração libera o pedido e a previsão de entrega
+  (14 dias úteis) conta de hoje; com alteração abre o aditivo de medição (conta na confirmação). No orçamento,
+  sem alteração marca "medidas conferidas"; com alteração gera a nova versão, e o configurador mostra o quadro
+  "Medidas tiradas no local" para passar as medidas aos itens.
+- Instalações continuam sendo marcadas no pedido; a Agenda mostra as duas juntas.

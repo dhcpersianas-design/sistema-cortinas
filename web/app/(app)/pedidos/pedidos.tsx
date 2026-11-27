@@ -214,7 +214,11 @@ function DetalhePedido({ id, admin, onVoltar }: { id: string; admin: boolean; on
               <div className="flex flex-wrap gap-2">
                 <Button disabled={ocupado} onClick={() => acao(`/api/pedidos/${id}/conferir-medidas`, {}, 'Medidas conferidas.')}>Medidas conferidas, sem mudança</Button>
                 <Button variant="outline" disabled={ocupado} onClick={() => abrirAditivo('Medição no local')}>Mudou algo: abrir aditivo de medição</Button>
+                <Button asChild variant="outline">
+                  <a href={`/agenda?novo=1&cliente=${p.clienteId}&nome=${encodeURIComponent(p.clienteNome)}&orcamento=${p.orcamentoId}`}>Marcar a visita de medição</a>
+                </Button>
               </div>
+              <p className="text-xs text-muted-foreground">Dica: na Agenda, a medição registra os vãos e as fotos na obra (sem internet) e a conferência de lá faz o mesmo que os botões acima.</p>
             </div>
           )}
 
