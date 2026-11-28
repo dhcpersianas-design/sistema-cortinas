@@ -5,8 +5,8 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { buscarCep } from '@/lib/viacep';
 
-export const classeSelect = 'h-11 w-full rounded-md border border-input bg-card px-3 text-base sm:h-10 sm:text-sm';
-export const classeTextarea = 'min-h-20 w-full rounded-md border border-input bg-card px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm';
+export const classeSelect = 'h-11 w-full rounded-lg border border-input bg-card px-3 text-base outline-none transition-shadow focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 sm:h-10 sm:text-sm';
+export const classeTextarea = 'min-h-20 w-full rounded-lg border border-input bg-card px-3 py-2 text-base outline-none transition-shadow focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 sm:text-sm';
 
 type PropsCampo = React.InputHTMLAttributes<HTMLInputElement> & { rotulo: string; nome: string; dica?: string; largo?: boolean };
 
