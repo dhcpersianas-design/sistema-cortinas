@@ -1,40 +1,60 @@
 @import "tailwindcss";
 
-/* Tokens no padrão shadcn/ui. */
+/*
+ * Identidade visual DHC (logo: coral #EC5242 → pêssego #F2925C sobre creme #FAF8F5).
+ * Dois temas: claro e escuro. O tema segue o aparelho, a não ser que o usuário escolha um
+ * no menu do usuário (fica salvo no aparelho). A classe .dark no <html> é aplicada por um
+ * script no <head> antes de desenhar a tela (sem piscar).
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: oklch(0.985 0.002 90);
-  --foreground: oklch(0.2 0.01 60);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.2 0.01 60);
-  --primary: oklch(0.38 0.06 160);
-  --primary-foreground: oklch(0.98 0 0);
-  --muted: oklch(0.95 0.005 90);
-  --muted-foreground: oklch(0.5 0.01 60);
-  --border: oklch(0.9 0.005 90);
-  --input: oklch(0.88 0.005 90);
-  --ring: oklch(0.55 0.08 160);
-  --destructive: oklch(0.55 0.2 27);
-  --radius: 0.6rem;
+  color-scheme: light;
+  --background: #faf7f3;
+  --foreground: #2a2320;
+  --card: #ffffff;
+  --card-foreground: #2a2320;
+  --primary: #cf4e39;
+  --primary-foreground: #ffffff;
+  --muted: #f4eee8;
+  --muted-foreground: #7a6e66;
+  --border: #ece4dc;
+  --input: #e0d6cc;
+  --ring: #ec7a55;
+  --destructive: #c2362b;
+  --accent: #fdeee7;
+  --accent-foreground: #b8432f;
+  --marca-1: #ec5242;
+  --marca-2: #f2925c;
+  --sombra: 0 1px 2px rgb(60 30 20 / 0.04), 0 4px 16px -4px rgb(60 30 20 / 0.08);
+  --sombra-forte: 0 2px 4px rgb(60 30 20 / 0.05), 0 12px 32px -8px rgb(207 78 57 / 0.25);
+  --brilho: rgb(242 146 92 / 0.16);
+  --radius: 0.75rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: oklch(0.17 0.005 60);
-    --foreground: oklch(0.95 0.005 90);
-    --card: oklch(0.21 0.005 60);
-    --card-foreground: oklch(0.95 0.005 90);
-    --primary: oklch(0.72 0.09 160);
-    --primary-foreground: oklch(0.18 0.01 160);
-    --muted: oklch(0.26 0.005 60);
-    --muted-foreground: oklch(0.7 0.01 60);
-    --border: oklch(0.3 0.005 60);
-    --input: oklch(0.34 0.005 60);
-    --ring: oklch(0.65 0.08 160);
-    --destructive: oklch(0.65 0.2 27);
-  }
+.dark {
+  color-scheme: dark;
+  --background: #14110f;
+  --foreground: #f3ece6;
+  --card: #1e1a17;
+  --card-foreground: #f3ece6;
+  --primary: #f08a64;
+  --primary-foreground: #1e120d;
+  --muted: #2a2420;
+  --muted-foreground: #a89a90;
+  --border: #342c27;
+  --input: #3f3630;
+  --ring: #f08a64;
+  --destructive: #ef6a5a;
+  --accent: #3a2419;
+  --accent-foreground: #f6a783;
+  --sombra: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 16px -4px rgb(0 0 0 / 0.4);
+  --sombra-forte: 0 2px 4px rgb(0 0 0 / 0.3), 0 12px 32px -8px rgb(240 138 100 / 0.25);
+  --brilho: rgb(236 82 66 / 0.12);
 }
 
 @theme inline {
+  --font-sans: var(--fonte-montserrat), ui-sans-serif, system-ui, sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -47,12 +67,53 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-destructive: var(--destructive);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-marca-1: var(--marca-1);
+  --color-marca-2: var(--marca-2);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 8px);
+  --shadow-sm: var(--sombra);
+  --shadow-marca: var(--sombra-forte);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
-  background: var(--background);
+  background-color: var(--background);
+  /* brilho suave da marca no topo da tela */
+  background-image: radial-gradient(60rem 22rem at 50% -8rem, var(--brilho), transparent 70%);
+  background-repeat: no-repeat;
   color: var(--foreground);
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
+
 * { border-color: var(--border); }
+
+::selection { background: var(--marca-2); color: #1e120d; }
+
+/* Campos nativos (select, data) acompanham o tema. */
+select, input, textarea { accent-color: var(--primary); }
+
+/* Faixa com o degradê da logo. */
+.faixa-marca { background-image: linear-gradient(90deg, var(--marca-1), var(--marca-2)); }
+.texto-marca {
+  background-image: linear-gradient(90deg, var(--marca-1), var(--marca-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Logo: versão escura só aparece no tema escuro. */
+.logo-escura { display: none; }
+.dark .logo-clara { display: none; }
+.dark .logo-escura { display: block; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .entrar { animation: entrar 0.35s ease-out both; }
+  @keyframes entrar { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+}

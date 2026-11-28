@@ -6,7 +6,7 @@
 //   lib/orcamentos-offline.ts), não aqui.
 // - Demais chamadas à API (login, gravações) nunca são cacheadas; gravações
 //   offline vão para a fila local (IndexedDB) do app, não para o SW.
-const VERSAO = 'v5';
+const VERSAO = 'v6';
 const ESTATICO = `estatico-${VERSAO}`;
 const PAGINAS = `paginas-${VERSAO}`;
 const DADOS = `dados-${VERSAO}`;
@@ -47,7 +47,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  if (url.pathname.startsWith('/_next/static/') || url.pathname === '/icone.svg') {
+  if (url.pathname.startsWith('/_next/static/') || url.pathname === '/icone.svg' || url.pathname.startsWith('/logo-dhc')) {
     e.respondWith(caches.open(ESTATICO).then(async (c) => (await c.match(req)) ?? fetch(req).then((r) => { if (r.ok) c.put(req, r.clone()); return r; })));
     return;
   }
