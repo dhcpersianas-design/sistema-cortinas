@@ -32,13 +32,23 @@ describe('migração 0011: produtos atuais vão para as novas categorias sem per
         ('TEC10',   6, 'Vertical', 'Nuance Translúcida', 'M2', 59, 118, '{}'),
         ('PX-1',    6, 'Persiana Especial', NULL, 'M2', 10, 20, '{}'),
         ('ACP-001', 7, 'Bandô', NULL, 'ML', 52, 135, '{"min_ml": 1}'),
-        ('TEC-001', 1, 'Linho', NULL, 'ML', 42, 110, '{"largura_rolo": 3}')`);
+        ('TEC-001', 1, 'Linho', NULL, 'ML', 42, 110, '{"largura_rolo": 3}'),
+        ('SRV-001', 9, 'Instalação Cortina', NULL, 'UN', 50, 100, '{}')`);
       await p.query(`INSERT INTO parametros_sistema (loja_id, chave, valor, vigente_desde) VALUES ('00000000-0000-0000-0000-000000000001', 'MARKUP_PADRAO_PCT', 120, '2026-02-01')`);
       await migrar(p);
       const { rows } = await p.query(`SELECT p.sku, c.nome, p.custo_unitario, p.preco_venda_unitario, p.metadata_tecnica
-        FROM produtos p JOIN categorias_produto c ON c.id = p.categoria_id ORDER BY p.sku`);
+        , p.ativo FROM produtos p JOIN categorias_produto c ON c.id = p.categoria_id
+        WHERE p.sku !~ '^(ARM|COR|SLI)[A-Z]{3}-[0-9]{4}$' ORDER BY p.sku`);
       expect(rows.map((r) => [r.sku, r.nome])).toEqual([
-        ['ACP-001', 'Peças e Acabamentos'], ['PX-1', 'Persianas'], ['SVK-002', 'Horizontal'], ['TEC-001', 'Tecidos'], ['TEC10', 'Vertical'],
+        ['ACP-001', 'Peças e Acabamentos'], ['PX-1', 'Persianas'], ['SRV-001', 'Instalação'], ['SVK-002', 'Horizontal'], ['TEC-001', 'Tecidos'], ['TEC10', 'Vertical'],
+      ]);
+      // 0014 (Gabriel, 27/11/2026): produtos antigos inativados; serviços continuam ativos.
+      expect(rows.filter((r) => r.ativo).map((r) => r.sku)).toEqual(['SRV-001']);
+      const novos = await p.query(`SELECT sku, nome, custo_unitario, preco_venda_unitario FROM produtos WHERE sku IN ('ARMTEC-0001', 'SLIPER-0001') ORDER BY sku`);
+      // venda = custo x (1 + markup da categoria); aqui o markup padrão vigente é 120%.
+      expect(novos.rows).toEqual([
+        { sku: 'ARMTEC-0001', nome: 'Voil Sorelle', custo_unitario: '19.9000', preco_venda_unitario: '43.7800' },
+        { sku: 'SLIPER-0001', nome: 'Vertical Tecido Acquas', custo_unitario: '74.9000', preco_venda_unitario: '164.7800' },
       ]);
       const svk = rows.find((r) => r.sku === 'SVK-002');
       expect([svk.custo_unitario, svk.preco_venda_unitario, svk.metadata_tecnica]).toEqual(['92.0000', '184.0000', { larg_max: 2.5 }]);
@@ -72,7 +82,7 @@ describe('categorias e markup por categoria', () => {
   it('4 categorias principais + Serviços; Persianas com os tipos pedidos', async () => {
     const cats = await categorias();
     expect(cats.filter((c) => c.paiId === null).map((c) => c.nome)).toEqual(['Persianas', 'Tecidos', 'Acessórios Persianas', 'Acessórios Cortinas', 'Serviços']);
-    expect(cats.filter((c) => c.paiId === 6).map((c) => c.nome)).toEqual(['Horizontal', 'Vertical', 'Painel', 'Romana', 'Rolo', 'Celular', 'Magic']);
+    expect(cats.filter((c) => c.paiId === 6).map((c) => c.nome)).toEqual(['Horizontal', 'Vertical', 'Painel', 'Romana', 'Rolo', 'Celular', 'Magic', 'Persidress']);
     expect(cats.filter((c) => c.paiId === 24).map((c) => c.caminho)).toEqual([
       'Persianas › Rolo › Caixa Box', 'Persianas › Rolo › Double Vision', 'Persianas › Rolo › Rolo', 'Persianas › Rolo › Shangrilá',
     ]);

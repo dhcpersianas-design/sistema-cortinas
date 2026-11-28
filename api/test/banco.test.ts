@@ -17,7 +17,7 @@ describe('migrações e seed da especificação', () => {
   });
 
   it('carrega categorias, plano de contas, loja única e parâmetros', async () => {
-    expect(await contar('SELECT COUNT(*) n FROM categorias_produto')).toBe(23); // 4 principais + Serviços + subcategorias (0011)
+    expect(await contar('SELECT COUNT(*) n FROM categorias_produto')).toBe(25); // 4 principais + Serviços + subcategorias (0011) + Persidress e Trilhos Motorizados (0014)
     expect(await contar('SELECT COUNT(*) n FROM plano_contas')).toBe(20); // 16 da especificação + 4 do financeiro
     expect(await contar('SELECT COUNT(*) n FROM lojas')).toBe(1);
     const { rows } = await pool.query('SELECT chave, valor FROM parametros_sistema ORDER BY chave');

@@ -45,7 +45,7 @@ export interface ComponenteCalculado {
 }
 
 export interface ResultadoCalculo {
-  tipo: 'CORTINA' | 'PERSIANA';
+  tipo: 'CORTINA' | 'PERSIANA' | 'SERVICO';
   componentes: ComponenteCalculado[];
   custoTotalItem: Decimal;
   vendaTotalItem: Decimal;

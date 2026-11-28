@@ -246,6 +246,28 @@ export async function rotasOrcamentos(app: FastifyInstance) {
     return res.code(201).send({ caminho, url, whatsapp: linkWhatsapp(doc.clienteTelefone, msg), mensagem: msg });
   });
 
+  /**
+   * Mensagem do WhatsApp (Gabriel, 27/11/2026): vai SÓ o PDF anexado e um texto de envio para
+   * conferência, sem link e sem valores. O app anexa o PDF pelo compartilhar do celular; o
+   * wa.me leva só o texto (no computador o PDF é baixado para anexar).
+   */
+  app.post<{ Params: { id: string } }>('/api/orcamentos/:id/mensagem-whatsapp', ver, async (req, res) => {
+    if (!uuid.safeParse(req.params.id).success) return res.code(404).send({ erro: 'Orçamento não encontrado.' });
+    const doc = await documento(req, req.params.id);
+    if (!doc) return res.code(404).send({ erro: 'Orçamento não encontrado.' });
+    if (doc.status === 'RASCUNHO') return res.code(409).send({ erro: 'Envie a proposta (congela a versão) antes de mandar para o cliente.' });
+    const [loja] = (await app.db.execute(sql`SELECT nome FROM lojas WHERE id = ${req.usuario!.lojaId}`)).rows as { nome: string }[];
+    const mensagem = mensagemProposta({
+      cliente: doc.clienteNome, vendedor: req.usuario!.nome, loja: loja?.nome ?? null, codigo: doc.codigo, versao: doc.versao,
+    });
+    return {
+      mensagem,
+      whatsapp: linkWhatsapp(doc.clienteTelefone, mensagem),
+      arquivo: `proposta-${doc.codigo}-v${doc.versao}.pdf`,
+      pdf: `/api/orcamentos/${doc.id}/proposta.pdf`,
+    };
+  });
+
   // Público (sem login): o cliente abre o PDF pelo link.
   app.get<{ Params: { token: string } }>('/api/propostas/:token', {
     config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
@@ -260,4 +282,19 @@ export async function rotasOrcamentos(app: FastifyInstance) {
     if (!l) return res.code(404).send({ erro: 'Link vencido ou inválido. Peça um novo ao vendedor.' });
     return enviarPdf(res, l.orcamentoId, l.detalhar, `proposta-${l.codigo}-v${l.versao}`);
   });
+}
+
+/** Texto de envio da proposta: cordial, sem valores e sem link (o PDF vai anexado). */
+export function mensagemProposta(p: { cliente: string; vendedor: string; loja: string | null; codigo: string; versao: number }): string {
+  const primeiro = (t: string) => t.trim().split(/\s+/)[0] ?? '';
+  const quem = [primeiro(p.vendedor), p.loja ? `da ${p.loja}` : null].filter(Boolean).join(' ');
+  return [
+    `Olá, ${primeiro(p.cliente)}! Tudo bem?`,
+    `Aqui é ${quem}.`,
+    '',
+    `Segue em anexo a proposta ${p.codigo}${p.versao > 1 ? ` (versão ${p.versao})` : ''} com o orçamento que você solicitou, para a sua conferência.`,
+    'Fique à vontade para revisar com calma. Se tiver qualquer dúvida ou quiser ajustar algum item, é só me chamar por aqui.',
+    '',
+    'Obrigado pela confiança!',
+  ].join('\n');
 }

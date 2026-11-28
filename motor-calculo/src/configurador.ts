@@ -12,12 +12,44 @@ import { Decimal, d, dinheiro, ErroEntrada, ZERO, type Numerico } from './decima
 import { componente, margemPct } from './comum.js';
 import { calcularCortina, type EntradaCortina } from './cortina.js';
 import { calcularPersiana, medidaProducao, type EntradaPersiana } from './persiana.js';
+import { adicionaisAplicados, bandoIncluso, rotuloBando } from './linha-persiana.js';
 import { semaforoMargem, LIMITES_SEMAFORO_PADRAO, type CorSemaforo, type LimitesSemaforo } from './precificacao.js';
 import type { Alerta, Catalogo, ComponenteCalculado, Produto, ResultadoCalculo } from './tipos.js';
 
 export type EntradaItem =
   | { tipo: 'CORTINA'; entrada: EntradaCortina }
-  | { tipo: 'PERSIANA'; entrada: EntradaPersiana };
+  | { tipo: 'PERSIANA'; entrada: EntradaPersiana }
+  | { tipo: 'SERVICO'; entrada: EntradaServico };
+
+/**
+ * Item só de serviço, sem produto (pedido do Gabriel, 27/11/2026): ex.: instalar ou consertar
+ * a persiana que o cliente já tem. Cada linha é um produto do catálogo (normalmente da
+ * categoria Serviços) com a quantidade.
+ */
+export interface EntradaServico {
+  servicos: { sku: string; quantidade: Numerico }[];
+  /** Texto para o cliente (ex.: "Instalação de 3 persianas do cliente"). Vazio = nomes dos serviços. */
+  descricao?: string;
+}
+
+export function calcularServico(e: EntradaServico, catalogo: Catalogo): ResultadoCalculo {
+  if (!e.servicos?.length) throw new ErroEntrada('Escolha pelo menos um serviço.');
+  const vistos = new Set<string>();
+  const comps = e.servicos.map((s) => {
+    if (vistos.has(s.sku)) throw new ErroEntrada(`${s.sku} aparece duas vezes: some as quantidades numa linha só.`);
+    vistos.add(s.sku);
+    const p = catalogo.obter(s.sku);
+    const q = quantidadeValida(s.sku, p.unidade, s.quantidade);
+    return componente(p, q, `serviço: ${q.toString()} ${p.unidade}`);
+  });
+  const custo = comps.reduce((t, c) => t.plus(c.custoTotal), ZERO);
+  const venda = comps.reduce((t, c) => t.plus(c.precoTotal), ZERO);
+  return {
+    tipo: 'SERVICO', componentes: comps, custoTotalItem: custo, vendaTotalItem: venda,
+    lucroBrutoItem: venda.minus(custo), margemBrutaPct: margemPct(venda.minus(custo), venda),
+    alertas: [], warnings: [], especificacaoTecnica: { servicos: e.servicos.map((s) => s.sku), descricao: e.descricao ?? null },
+  };
+}
 
 /** Ajuste manual sobre a explosão do motor (regra de ouro 3: com auditoria). */
 export type Ajuste =
@@ -35,7 +67,7 @@ export interface ComponenteItem extends ComponenteCalculado {
 }
 
 export interface ResultadoItem {
-  tipo: 'CORTINA' | 'PERSIANA';
+  tipo: 'CORTINA' | 'PERSIANA' | 'SERVICO';
   componentes: ComponenteItem[];
   custoTotal: Decimal;
   vendaTotal: Decimal;
@@ -119,8 +151,12 @@ export function calcularItem(item: EntradaItem, ajustes: Ajuste[], catalogo: Cat
     larguraProducao = m.largura;
     alturaProducao = m.altura;
     if (m.vaoBruto) { larguraBruta = d(m.vaoBruto.largura); alturaBruta = d(m.vaoBruto.altura); }
+  } else if (item.tipo === 'SERVICO') {
+    motor = calcularServico(item.entrada, catalogo);
+    larguraProducao = ZERO;
+    alturaProducao = ZERO;
   } else {
-    throw new ErroEntrada('Tipo de item inválido (use CORTINA ou PERSIANA).');
+    throw new ErroEntrada('Tipo de item inválido (use CORTINA, PERSIANA ou SERVICO).');
   }
   const componentes = aplicarAjustes(motor.componentes, ajustes, catalogo);
   if (componentes.length === 0) throw new ErroEntrada('O item ficou sem componentes.');
@@ -145,12 +181,24 @@ export function descricaoComercial(item: EntradaItem, catalogo: Catalogo): strin
     const e = item.entrada;
     const conf = { WAVE: 'Wave', PREGA: 'Prega macho', FRANZIDO: 'Franzida' }[e.confeccao] ?? e.confeccao;
     const forro = e.forro ? ` c/ forro ${catalogo.obter(e.forro.sku).nome}` : '';
+    if (e.trilhoMotorizado) return `Cortina ${conf} motorizada em ${catalogo.obter(e.tecido.sku).nome}${forro} (${br(e.larguraTrilho)} m x ${br(e.alturaPronta)} m)`;
     return `Cortina ${conf} em ${catalogo.obter(e.tecido.sku).nome}${forro} (${br(e.larguraTrilho)} m x ${br(e.alturaPronta)} m)`;
+  }
+  if (item.tipo === 'SERVICO') {
+    const t = item.entrada.descricao?.trim();
+    if (t) return t;
+    return item.entrada.servicos.map((s) => {
+      const q = d(s.quantidade);
+      return `${catalogo.obter(s.sku).nome}${q.eq(1) ? '' : ` (${br(q).replace(/,00$/, '')})`}`;
+    }).join(' + ');
   }
   const e = item.entrada;
   const m = medidaProducao(e.medida);
-  const extras = [e.acionamento === 'MOTORIZADO' ? 'motorizada' : null, e.possuiBando ? 'c/ bandô' : null].filter(Boolean).join(', ');
-  return `${catalogo.obter(e.sku).nome}${extras ? `, ${extras}` : ''} (${br(m.largura)} m x ${br(m.altura)} m)`;
+  const p = catalogo.obter(e.sku);
+  const doCliente = adicionaisAplicados(p, e.adicionais, { larguraPeca: m.largura.div(e.numPecas ?? 1), motorizado: e.acionamento === 'MOTORIZADO' })
+    .map((a) => a.descricao).filter((x): x is string => !!x);
+  const extras = [...doCliente, e.acionamento === 'MOTORIZADO' ? 'motorizada' : null, e.possuiBando && !bandoIncluso(p) ? `c/ ${rotuloBando(p).toLowerCase()}` : null].filter(Boolean).join(', ');
+  return `${p.nome}${extras ? `, ${extras}` : ''} (${br(m.largura)} m x ${br(m.altura)} m)`;
 }
 
 // ------------------------------------------------------------------ totais e rateio

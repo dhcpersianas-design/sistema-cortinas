@@ -138,7 +138,7 @@ async function itensDoOrcamento(db: Exec, orcamentoId: string | null) {
     SELECT id, ambiente, tipo_item::text AS tipo, descricao_comercial AS descricao,
            largura_bruta_m::text AS "larguraBruta", altura_bruta_m::text AS "alturaBruta",
            largura_producao_m::text AS "larguraProducao", altura_producao_m::text AS "alturaProducao"
-      FROM orcamento_itens_compostos WHERE orcamento_id = ${orcamentoId} ORDER BY ordem, id`);
+      FROM orcamento_itens_compostos WHERE orcamento_id = ${orcamentoId} AND tipo_item <> 'SERVICO' ORDER BY ordem, id`);
 }
 
 /** O que a conferência pode fazer agora (o app mostra só os botões que valem). */

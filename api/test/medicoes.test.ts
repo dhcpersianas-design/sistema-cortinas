@@ -202,7 +202,7 @@ describe('registro na obra e conferência', () => {
     expect(c.json().medicao.status).toBe('CONFERIDA');
     const p = (await req(ana, 'GET', `/api/pedidos/${pedido.id}`)).json().pedido;
     expect(p.status).toBe('AGUARDANDO_SINAL');
-    expect(p.previsaoEntrega).toBe(somarDiasUteis(hojeLoja(), 14));
+    expect(p.previsaoEntrega).toBe(somarDiasUteis(hojeLoja(), 12));
   });
 
   it('pedido com medida diferente: abre aditivo; confirmar o aditivo marca a medição conferida', async () => {
@@ -259,7 +259,7 @@ describe('registro na obra e conferência', () => {
     const c = await req(ana, 'POST', `/api/medicoes/${id}/conferir`, { alterou: false, conferidaEm: ontem });
     expect(c.statusCode, c.body).toBe(200);
     const p = (await req(ana, 'GET', `/api/pedidos/${pedido.id}`)).json().pedido;
-    expect(p.previsaoEntrega).toBe(somarDiasUteis(hojeLoja(new Date(ontem)), 14));
+    expect(p.previsaoEntrega).toBe(somarDiasUteis(hojeLoja(new Date(ontem)), 12));
     const rep = await req(ana, 'POST', `/api/medicoes/${id}/conferir`, { alterou: false, conferidaEm: ontem });
     expect(rep.statusCode).toBe(409);
     expect(rep.json().jaConferida).toBe(true);

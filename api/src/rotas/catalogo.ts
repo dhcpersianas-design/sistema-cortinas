@@ -374,6 +374,35 @@ export async function rotasCatalogo(app: FastifyInstance) {
   });
 
   /**
+   * Excluir produto de vez (só ADMIN, pedido do Gabriel em 27/11/2026). Produto que já entrou em
+   * orçamento ou ordem de compra não pode sumir (os documentos guardam o vínculo): nesse caso
+   * a resposta pede para inativar. O histórico de preços e a tabela de barras saem junto.
+   */
+  app.delete<{ Params: { id: string } }>('/api/catalogo/produtos/:id', { preHandler: exigir('catalogo.excluir') }, async (req, res) => {
+    if (!z.uuid().safeParse(req.params.id).success) return res.code(404).send({ erro: 'Produto não encontrado.' });
+    const r = await app.db.transaction(async (tx) => {
+      const [p] = (await tx.execute(sql`SELECT id, sku, nome FROM produtos WHERE id = ${req.params.id} FOR UPDATE`)).rows as { id: string; sku: string; nome: string }[];
+      if (!p) return null;
+      const [uso] = (await tx.execute(sql`SELECT
+          (SELECT COUNT(*) FROM orcamento_componentes WHERE produto_id = ${p.id})::int AS orcamentos,
+          (SELECT COUNT(*) FROM ordem_compra_itens WHERE produto_id = ${p.id})::int AS compras`)).rows as { orcamentos: number; compras: number }[];
+      if (uso!.orcamentos > 0 || uso!.compras > 0) return { usado: true as const, ...p, ...uso! };
+      await tx.execute(sql`DELETE FROM importacoes_preco_itens WHERE produto_id = ${p.id}`);
+      await tx.execute(sql`DELETE FROM historico_precos_produto WHERE produto_id = ${p.id}`);
+      await tx.execute(sql`DELETE FROM produtos WHERE id = ${p.id}`);
+      return { usado: false as const, ...p };
+    });
+    if (!r) return res.code(404).send({ erro: 'Produto não encontrado.' });
+    if (r.usado) {
+      return res.code(409).send({
+        erro: `${r.sku} já foi usado em ${r.orcamentos ? `${r.orcamentos} linha(s) de orçamento` : ''}${r.orcamentos && r.compras ? ' e ' : ''}${r.compras ? `${r.compras} ordem(ns) de compra` : ''}. Para não estragar esses documentos, ele não pode ser excluído: desmarque "Ativo" para tirá-lo das listas.`,
+      });
+    }
+    req.log.info({ produto: r.sku, usuario: req.usuario!.id }, 'produto excluído');
+    return { ok: true, sku: r.sku };
+  });
+
+  /**
    * Tabela de preço por tamanho de barra (1 a 6 m), preenchida pelo ADMIN.
    * Cada linha enviada substitui aquele tamanho; custo e venda vazios apagam o tamanho.
    * Venda vazia com custo preenchido = sugestão pelo markup padrão.

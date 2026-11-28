@@ -1,6 +1,10 @@
 import { Decimal, d, ErroEntrada, naoNegativo, positivo, ZERO, type Numerico } from './decimal.js';
 import { componente, f2, fecharResultado, metaNum, obterAuxiliar } from './comum.js';
-import type { Alerta, Catalogo, ComponenteCalculado, ResultadoCalculo } from './tipos.js';
+import {
+  acionamentosDoModelo, adicionaisAplicados, adicionaisDoModelo, limitesDoModelo, somarAdicionais,
+  bandosDoModelo, rotuloBando, bandoIncluso,
+} from './linha-persiana.js';
+import type { Alerta, Catalogo, ComponenteCalculado, Produto, ResultadoCalculo } from './tipos.js';
 
 export type ModoInstalacao = 'DENTRO_VAO' | 'FORA_VAO' | 'TETO';
 export type Acionamento = 'MANUAL' | 'MOTORIZADO';
@@ -58,6 +62,8 @@ export interface EntradaPersiana {
   sentidoEnrolamento: 'NORMAL' | 'REVERSO';
   fixacao?: 'TETO' | 'PAREDE';
   possuiBando?: boolean;
+  /** Qual bandô/sanefa da linha (metadata.bandos). Sem ele, usa o primeiro da lista ou skus.bando. */
+  skuBando?: string;
   folgaBandoM?: Numerico;
   possuiGuiaLateral?: boolean;
   possuiCalhaInferior?: boolean;
@@ -70,6 +76,17 @@ export interface EntradaPersiana {
   /** Divide o vão em N peças iguais (vão maior que a largura máxima do rolo). Padrão 1. */
   numPecas?: number;
   skus?: Partial<SkusPersiana>;
+  /** Opcionais da linha marcados pelo vendedor (códigos de `metadata.adicionais`, ex.: CASCATA). */
+  adicionais?: string[];
+  /** Modelo de acionamento (D, E, B, C, SPT, DUPLEX, H, EL, DE, DD, ED), quando a linha define. */
+  modeloAcionamento?: string;
+}
+
+/** Peças da linha cadastradas no produto (`metadata.skus`), ex.: o bandô certo de cada linha. */
+function skusDaLinha(p: Produto): Partial<SkusPersiana> {
+  const s = p.metadata?.['skus'];
+  if (!s || typeof s !== 'object') return {};
+  return Object.fromEntries(Object.entries(s as Record<string, unknown>).filter(([, v]) => typeof v === 'string' && v)) as Partial<SkusPersiana>;
 }
 
 function menor(v: Numerico | Numerico[]): Decimal {
@@ -128,7 +145,6 @@ export function tuboRecomendado(largura: Decimal): string {
 }
 
 export function calcularPersiana(e: EntradaPersiana, catalogo: Catalogo): ResultadoCalculo {
-  const skus = { ...SKUS_PERSIANA_PADRAO, ...e.skus };
   const numPecas = e.numPecas ?? 1;
   if (!Number.isInteger(numPecas) || numPecas < 1) throw new ErroEntrada('numPecas deve ser inteiro ≥ 1');
   if (e.acionamento !== 'MANUAL' && e.acionamento !== 'MOTORIZADO') throw new ErroEntrada('acionamento inválido');
@@ -144,6 +160,14 @@ export function calcularPersiana(e: EntradaPersiana, catalogo: Catalogo): Result
   const alertas: Alerta[] = [];
   const comps: ComponenteCalculado[] = [];
   const pPer = catalogo.obter(e.sku);
+  const skus = { ...SKUS_PERSIANA_PADRAO, ...skusDaLinha(pPer), ...e.skus };
+  const motorizado = e.acionamento === 'MOTORIZADO';
+  const modelosOk = acionamentosDoModelo(pPer);
+  if (e.modeloAcionamento && modelosOk.length > 0 && !modelosOk.includes(e.modeloAcionamento)) {
+    throw new ErroEntrada(`Modelo de acionamento ${e.modeloAcionamento} não existe para ${pPer.nome} (use ${modelosOk.join(', ')}).`);
+  }
+  const adicionais = adicionaisAplicados(pPer, e.adicionais, { larguraPeca: L, motorizado });
+  const lim = limitesDoModelo(pPer, motorizado, adicionais.map((a) => a.codigo));
 
   // ---------- Passo A: área ----------
   const area = calcularAreaPersianaM2({
@@ -153,7 +177,10 @@ export function calcularPersiana(e: EntradaPersiana, catalogo: Catalogo): Result
     alturaMin: metaNum(pPer, 'alt_min', 0),
     areaMin: metaNum(pPer, 'area_min', 0),
   });
-  comps.push(componente(pPer, area.areaFaturavel.mul(nP), `${med.log}; ${area.log}${txtPecas}`));
+  comps.push(somarAdicionais(
+    componente(pPer, area.areaFaturavel.mul(nP), `${med.log}; ${area.log}${txtPecas}`),
+    pPer, adicionais, { larguraPeca: L, numPecas },
+  ));
 
   // Regras do modelo (metadata do catálogo): avisam o vendedor; nada disso vai para o PDF do cliente.
   const lMin = metaNum(pPer, 'larg_min', 0);
@@ -171,18 +198,44 @@ export function calcularPersiana(e: EntradaPersiana, catalogo: Catalogo): Result
     alertas.push({ codigo: 'AREA_ABAIXO_MINIMO', severidade: 'ATENCAO',
       mensagem: `Área de ${f2(L.mul(H))}m² por peça abaixo da mínima de ${f2(areaMin)}m² deste modelo: cobrada pela área mínima (${f2(area.areaFaturavel)}m²).` });
   }
-  const aMax = pPer.metadata?.['alt_max'] !== undefined ? metaNum(pPer, 'alt_max') : undefined;
-  if (aMax && H.gt(aMax)) {
-    alertas.push({ codigo: 'ALTURA_EXCEDE_MAXIMO', severidade: 'CRITICO',
-      mensagem: `Altura ${f2(H)}m acima da máxima de ${f2(aMax)}m deste modelo. Consulte a fábrica antes de vender.` });
+  // Máximos: com "sob consulta" cadastrado, passar do recomendado só avisa; passar do sob consulta é crítico.
+  const SEM_GARANTIA = 'Acima do recomendado é sob consulta à fábrica e a característica não é defeito (sem garantia).';
+  if (lim.larg_min_producao !== undefined && L.lt(lim.larg_min_producao)) {
+    alertas.push({ codigo: 'LARGURA_ABAIXO_PRODUCAO', severidade: 'CRITICO',
+      mensagem: `Largura ${f2(L)}m abaixo da mínima que a fábrica produz (${f2(d(lim.larg_min_producao))}m) para este modelo.` });
   }
-  const lMax = pPer.metadata?.['larg_max'] !== undefined ? metaNum(pPer, 'larg_max') : undefined;
-  if (lMax && L.gt(lMax)) {
-    alertas.push({
-      codigo: 'LARGURA_EXCEDE_ROLO',
-      severidade: 'CRITICO',
-      mensagem: `Largura ${f2(L)}m excede o limite de ${f2(lMax)}m do rolo/tubo deste tecido. Divida o vão em 2 peças ou consulte fábrica sobre rotação/emenda.`,
-    });
+  const checarMaximo = (medida: Decimal, max: number | undefined, consulta: number | undefined, oQue: 'Largura' | 'Altura', codigo: string, msgCritica: string) => {
+    if (max === undefined || !medida.gt(max)) return;
+    if (consulta !== undefined && medida.lte(consulta)) {
+      alertas.push({ codigo: 'SOB_CONSULTA', severidade: 'ATENCAO',
+        mensagem: `${oQue} ${f2(medida)}m acima do recomendado (${f2(d(max))}m), até ${f2(d(consulta))}m. ${SEM_GARANTIA}` });
+      return;
+    }
+    alertas.push({ codigo, severidade: 'CRITICO', mensagem: msgCritica });
+  };
+  checarMaximo(L, lim.larg_max, lim.larg_max_consulta, 'Largura', 'LARGURA_EXCEDE_ROLO',
+    lim.larg_max_consulta !== undefined
+      ? `Largura ${f2(L)}m acima do máximo sob consulta (${f2(d(lim.larg_max_consulta))}m) deste modelo. Divida o vão em mais peças.`
+      : `Largura ${f2(L)}m excede o limite de ${f2(d(lim.larg_max ?? 0))}m do rolo/tubo deste tecido. Divida o vão em 2 peças ou consulte fábrica sobre rotação/emenda.`);
+  checarMaximo(H, lim.alt_max, lim.alt_max_consulta, 'Altura', 'ALTURA_EXCEDE_MAXIMO',
+    lim.alt_max_consulta !== undefined
+      ? `Altura ${f2(H)}m acima do máximo sob consulta (${f2(d(lim.alt_max_consulta))}m) deste modelo. Não vender sem a fábrica confirmar.`
+      : `Altura ${f2(H)}m acima da máxima de ${f2(d(lim.alt_max ?? 0))}m deste modelo. Consulte a fábrica antes de vender.`);
+  if (lim.area_max !== undefined && L.mul(H).gt(lim.area_max)) {
+    alertas.push({ codigo: 'SOB_CONSULTA', severidade: 'ATENCAO',
+      mensagem: `Área de ${f2(L.mul(H))}m² por peça acima da máxima recomendada (${f2(d(lim.area_max))}m²). ${SEM_GARANTIA}` });
+  }
+  const semGarantia = pPer.metadata?.['sem_garantia_larg_acima'];
+  if (semGarantia !== undefined && L.gt(d(semGarantia as number))) {
+    alertas.push({ codigo: 'SEM_GARANTIA', severidade: 'ATENCAO',
+      mensagem: `Largura ${f2(L)}m acima de ${f2(d(semGarantia as number))}m: a fábrica não dá garantia neste modelo. Avise o cliente.` });
+  }
+  const escolhidos = new Set(adicionais.map((a) => a.codigo));
+  for (const a of adicionaisDoModelo(pPer)) {
+    if (a.sugerir_area_acima !== undefined && !escolhidos.has(a.codigo) && L.mul(H).gt(a.sugerir_area_acima)) {
+      alertas.push({ codigo: 'SUGERIR_ADICIONAL', severidade: 'ATENCAO',
+        mensagem: `Peça com ${f2(L.mul(H))}m² (acima de ${f2(d(a.sugerir_area_acima))}m²): a fábrica recomenda "${a.rotulo}". Marque o opcional.` });
+    }
   }
   const limiteRedutor = (() => {
     try {
@@ -191,7 +244,8 @@ export function calcularPersiana(e: EntradaPersiana, catalogo: Catalogo): Result
       return new Decimal('2.40');
     }
   })();
-  const sugereRedutor = L.gt(limiteRedutor) && e.acionamento === 'MANUAL';
+  const enrolavel = pPer.metadata?.['enrolavel'] !== false;
+  const sugereRedutor = enrolavel && L.gt(limiteRedutor) && e.acionamento === 'MANUAL';
   if (sugereRedutor && !e.incluirRedutorPeso) {
     alertas.push({
       codigo: 'SUGERIR_REDUTOR_PESO',
@@ -200,7 +254,7 @@ export function calcularPersiana(e: EntradaPersiana, catalogo: Catalogo): Result
       skuSugerido: skus.redutorPeso,
     });
   }
-  if (H.gt(L.mul('2.5'))) {
+  if (enrolavel && H.gt(L.mul('2.5'))) {
     alertas.push({
       codigo: 'RISCO_TELESCOPAGEM',
       severidade: 'ATENCAO',
@@ -209,8 +263,18 @@ export function calcularPersiana(e: EntradaPersiana, catalogo: Catalogo): Result
   }
 
   // ---------- Passo B ----------
-  if (e.possuiBando) {
-    const p = obterAuxiliar(catalogo, skus.bando, alertas, 'O bandô');
+  const nomeBando = rotuloBando(pPer);
+  const opcoesBando = bandosDoModelo(pPer);
+  if (e.skuBando && opcoesBando.length > 0 && !opcoesBando.includes(e.skuBando)) {
+    throw new ErroEntrada(`${nomeBando} ${e.skuBando} não serve para ${pPer.nome} (use ${opcoesBando.join(', ')}).`);
+  }
+  const skuBando = e.skuBando ?? opcoesBando[0] ?? skus.bando;
+  const comBando = !!e.possuiBando && !bandoIncluso(pPer);
+  if (e.possuiBando && bandoIncluso(pPer)) {
+    alertas.push({ codigo: 'BANDO_INCLUSO', severidade: 'INFO', mensagem: `${pPer.nome} já vem com o bandô: não somei bandô avulso.` });
+  }
+  if (comBando) {
+    const p = obterAuxiliar(catalogo, skuBando, alertas, `${nomeBando === 'Bandô' ? 'O bandô' : `A ${nomeBando.toLowerCase()}`}`);
     const folga = naoNegativo('folgaBandoM', e.folgaBandoM ?? 0);
     if (p) {
       const min = metaNum(p, 'min_ml', '1.00');
@@ -230,10 +294,14 @@ export function calcularPersiana(e: EntradaPersiana, catalogo: Catalogo): Result
   if (sugereRedutor && e.incluirRedutorPeso) {
     aux(skus.redutorPeso, 'O redutor de peso', nP, `1 PC por peça (manual > ${f2(limiteRedutor)}m)`);
   }
+  const motorIncluso = pPer.metadata?.['motor_incluso'] === true;
   if (e.acionamento === 'MOTORIZADO') {
-    aux(skus.motor, 'O motor', nP, `1 PC por persiana motorizada${txtPecas}`);
-    const qc = e.qtdControles ?? 1;
-    if (qc > 0) aux(skus.controle, 'O controle remoto', new Decimal(qc), `${qc} PC sugerido por ambiente/orçamento (editável)`);
+    // Linha com motorização própria (ex.: Magic: trilho motorizado + motor com controle) já soma nos adicionais.
+    if (!motorIncluso) {
+      aux(skus.motor, 'O motor', nP, `1 PC por persiana motorizada${txtPecas}`);
+      const qc = e.qtdControles ?? 1;
+      if (qc > 0) aux(skus.controle, 'O controle remoto', new Decimal(qc), `${qc} PC sugerido por ambiente/orçamento (editável)`);
+    }
     const qh = e.qtdHubs ?? 0;
     if (qh > 0) aux(skus.hub, 'O hub Wi-Fi', new Decimal(qh), `${qh} PC no nível do orçamento`);
     aux(skus.instalacaoMotorizada, 'A instalação de persiana motorizada', nP, `1 PC por persiana motorizada${txtPecas}`);
@@ -249,11 +317,16 @@ export function calcularPersiana(e: EntradaPersiana, catalogo: Catalogo): Result
     numPecas,
     areaFaturavelPorPeca: area.areaFaturavel.toFixed(4),
     acionamento: e.acionamento,
+    modeloAcionamento: e.modeloAcionamento,
+    adicionais: adicionais.map((a) => a.rotulo),
+    prazoFabricaDias: pPer.metadata?.['prazo_fabrica_dias'],
     ladoComando: e.ladoComando,
     sentidoEnrolamento: e.sentidoEnrolamento,
     fixacao: e.fixacao,
     tuboMinimoRecomendado: tuboRecomendado(L),
-    bando: !!e.possuiBando,
+    bando: comBando,
+    bandoSku: comBando ? skuBando : undefined,
+    rotuloBando: nomeBando,
     guiaLateral: !!e.possuiGuiaLateral,
     calhaInferior: !!e.possuiCalhaInferior,
   });

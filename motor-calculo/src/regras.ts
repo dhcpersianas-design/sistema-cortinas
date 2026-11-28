@@ -8,6 +8,7 @@
 import { d } from './decimal.js';
 import { SKUS_CORTINA_PADRAO } from './cortina.js';
 import { SKUS_PERSIANA_PADRAO } from './persiana.js';
+import { acionamentosDoModelo, adicionaisDoModelo, avisosDoModelo, bandoIncluso, bandosDoModelo, MODELOS_ACIONAMENTO, rotuloBando, textoAdicional } from './linha-persiana.js';
 import type { Produto } from './tipos.js';
 
 export interface RegraModelo {
@@ -22,6 +23,7 @@ export interface ModeloEscolhido {
   tecido?: string;
   forro?: string;
   trilho?: string;
+  trilhoMotorizado?: string;
   confeccao?: string;
   acionamento?: string;
 }
@@ -48,11 +50,30 @@ export function regrasDoModelo(e: ModeloEscolhido, obter: Obter): RegraModelo[] 
     const lMin = num(p, 'larg_min'); const lMax = num(p, 'larg_max');
     const aMin = num(p, 'alt_min'); const aMax = num(p, 'alt_max');
     const area = num(p, 'area_min');
-    if (lMax) add('Largura máxima', `${m(lMax)} por peça. Acima disso, divida o vão em mais peças.`);
+    const lCons = num(p, 'larg_max_consulta'); const aCons = num(p, 'alt_max_consulta');
+    const lProd = num(p, 'larg_min_producao'); const areaMax = num(p, 'area_max');
+    const prazo = num(p, 'prazo_fabrica_dias');
+    if (prazo) add('Prazo da fábrica', `${prazo} dias úteis.`);
+    if (lMax) add('Largura máxima', lCons ? `${m(lMax)} recomendada; até ${m(lCons)} sob consulta, sem garantia.` : `${m(lMax)} por peça. Acima disso, divida o vão em mais peças.`);
+    if (lProd) add('Largura mínima produzida', `${m(lProd)}. Abaixo disso, a fábrica não produz.`);
     if (lMin) add('Largura mínima', `${m(lMin)}. Abaixo disso, é cobrada como ${m(lMin)}.`);
-    if (aMax) add('Altura máxima', `${m(aMax)}. Acima disso, consulte a fábrica.`);
+    if (aMax) add('Altura máxima', aCons ? `${m(aMax)} recomendada; até ${m(aCons)} sob consulta, sem garantia.` : `${m(aMax)}. Acima disso, consulte a fábrica.`);
+    if (areaMax) add('Área máxima', `${m2(areaMax)} por peça recomendada. Acima disso, sob consulta e sem garantia.`);
     if (aMin) add('Altura mínima cobrada', `${m(aMin)}. Abaixo disso, é cobrada como ${m(aMin)}.`);
     if (area) add('Área mínima cobrada', `${m2(area)} por peça. Peça menor é cobrada como ${m2(area)}.`);
+    for (const t of avisosDoModelo(p)) add('Atenção', t);
+    const ads = adicionaisDoModelo(p);
+    if (ads.length) add('Opcionais', ads.map(textoAdicional).join('; ') + '.');
+    if (bandoIncluso(p)) add('Bandô', 'Já vem com a peça (não soma bandô avulso).');
+    else if (bandosDoModelo(p).length) add(rotuloBando(p), `Opcional, vendido à parte: marque "${rotuloBando(p)}" e escolha o modelo.`);
+    const acs = acionamentosDoModelo(p);
+    if (acs.length) add('Acionamentos', acs.map((a) => MODELOS_ACIONAMENTO[a] ?? `Modelo ${a}`).join('; ') + '.');
+    if (p.metadata?.['motor_incluso'] === true) {
+      add('Motorizada', 'A motorização desta linha já entra nos opcionais (não soma motor e controle avulsos).');
+      return r;
+    }
+    // Telescopagem e redutor de peso só fazem sentido em tecido que enrola no tubo (rolo, double vision...).
+    if (p.metadata?.['enrolavel'] === false) return r;
     const redutor = obter(SKUS_PERSIANA_PADRAO.redutorPeso);
     const lRed = num(redutor, 'sugerir_largura_maior_m') ?? 2.4;
     if (e.acionamento !== 'MOTORIZADO') add('Manual largo', `Acima de ${m(lRed)} no manual, sugerido redutor de peso (mola de alívio) ou motor.`);
@@ -66,7 +87,16 @@ export function regrasDoModelo(e: ModeloEscolhido, obter: Obter): RegraModelo[] 
   const forro = e.forro ? obter(e.forro) : undefined;
   const lRoloF = num(forro, 'largura_rolo');
   if (forro && lRoloF) add('Largura do rolo do forro', `${m(lRoloF)}. Acima disso, corte em tiras.`);
-  const trilho = obter(e.trilho || SKUS_CORTINA_PADRAO.trilho);
+  const motor = e.trilhoMotorizado ? obter(e.trilhoMotorizado) : undefined;
+  if (motor) {
+    const faixas = (motor.metadata?.['faixas'] ?? []) as { ate: number }[];
+    const max = faixas.length ? Math.max(...faixas.map((f) => Number(f.ate))) : null;
+    add('Trilho motorizado', `Sistema completo (trilho pronto com motor): não soma trilho comum, deslizantes, terminais nem garras. Preço pela faixa de largura${max ? `; máximo ${m(max)} (acima a fábrica não produz)` : ''}.`);
+    add('Controle remoto', 'Não vem com o trilho: confira o controle sugerido no orçamento (1 canal aciona 1 peça).');
+    const modelo = String(motor.metadata?.['modelo'] ?? '');
+    if (modelo) add('Modelo do trilho', modelo === 'WAVE' ? 'Wave (botão): só para cortina Wave.' : 'Standard (franzida): para cortina franzida ou prega.');
+  }
+  const trilho = motor ? undefined : obter(e.trilho || SKUS_CORTINA_PADRAO.trilho);
   if (trilho) {
     const ehVarao = String(trilho.metadata?.['tipo'] ?? '').toUpperCase() === 'VARAO';
     const barra = num(trilho, 'barra_max');

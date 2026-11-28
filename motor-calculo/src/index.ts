@@ -3,6 +3,8 @@ export type * from './tipos.js';
 export { PRODUTOS_SEED, criarCatalogo, catalogoSeed } from './catalogo-seed.js';
 export {
   calcularCortina,
+  precoTrilhoMotorizado,
+  type FaixaTrilhoMotorizado,
   calcularTecidoML,
   calcularDeslizantesWave,
   calcularGarrasTrilho,
@@ -35,7 +37,7 @@ export { lerPrecosBarraCSV, aplicarPrecosBarra, normalizarNumero, type LinhaPrec
 export { carregarCatalogo, CAMINHO_PRECOS_BARRA } from './carregar.js';
 export { precoVendaSugerido, semaforoMargem, MARKUP_PADRAO_PCT, LIMITES_SEMAFORO_PADRAO, type CorSemaforo, type LimitesSemaforo } from './precificacao.js';
 export {
-  calcularItem, aplicarAjustes, descricaoComercial, garantiaMesesProduto, garantiaDoItem, textoGarantia, sugerirControles,
+  calcularItem, calcularServico, type EntradaServico, aplicarAjustes, descricaoComercial, garantiaMesesProduto, garantiaDoItem, textoGarantia, sugerirControles,
   type GarantiaItem, type OpcaoControle, ratear, ratearDesconto, totalizarOrcamento, checarLiberacao, tetoDesconto, descontoValeNaForma, type TetoDesconto,
   type EntradaItem, type Ajuste, type ComponenteItem, type ResultadoItem, type LinhaParaRateio,
   type CondicoesOrcamento, type ParametrosMargem, type TotaisOrcamento, type ChecagemLiberacao,
@@ -43,3 +45,7 @@ export {
 export { regrasDoModelo, type RegraModelo, type ModeloEscolhido } from './regras.js';
 export { MODELOS_CADASTRO, ALTERACAO_EM_MASSA, modeloCadastro, metadataDosCampos, type PerfilCadastro, type CampoTecnico, type ModeloCadastro } from './cadastro.js';
 export { STATUS_DISPONIBILIDADE, ROTULO_DISPONIBILIDADE, alertasDisponibilidade, textoDisponibilidade, dataBr, type StatusDisponibilidade } from './disponibilidade.js';
+export {
+  MODELOS_ACIONAMENTO, adicionaisDoModelo, acionamentosDoModelo, avisosDoModelo, limitesDoModelo, adicionaisAplicados, textoAdicional, bandosDoModelo, rotuloBando, bandoIncluso,
+  type AdicionalModelo, type LimitesModelo, type TipoAdicional,
+} from './linha-persiana.js';

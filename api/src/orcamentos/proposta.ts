@@ -36,7 +36,7 @@ const FORMAS: Record<string, string> = {
 };
 
 /** Desenho pequeno ao lado do item. */
-export type IconeItem = 'CORTINA' | 'ROLO' | 'HORIZONTAL' | 'VERTICAL';
+export type IconeItem = 'CORTINA' | 'ROLO' | 'HORIZONTAL' | 'VERTICAL' | 'SERVICO';
 
 export type ItemProposta = {
   titulo: string;
@@ -68,7 +68,8 @@ const MEDIDAS_NO_FIM = /\s*\(\s*[\d.,]+\s*m\s*x\s*[\d.,]+\s*m\s*\)\s*$/i;
 type EntradaSalva = Record<string, unknown> & {
   sku?: string; acionamento?: string; ladoComando?: string; fixacao?: string; numPecas?: number;
   possuiBando?: boolean; possuiGuiaLateral?: boolean; possuiCalhaInferior?: boolean;
-  confeccao?: string; numFolhas?: number; tecido?: { sku?: string }; forro?: { sku?: string } | null; skus?: { trilho?: string };
+  confeccao?: string; numFolhas?: number; trilhoMotorizado?: string; tecido?: { sku?: string }; forro?: { sku?: string } | null; skus?: { trilho?: string };
+  servicos?: { sku: string; quantidade: string | number }[];
 };
 
 export function descreverItem(i: Pick<ItemCompleto, 'tipo' | 'descricaoComercial' | 'larguraProducao' | 'alturaProducao' | 'entrada' | 'componentes'>) {
@@ -82,6 +83,15 @@ export function descreverItem(i: Pick<ItemCompleto, 'tipo' | 'descricaoComercial
   let icone: IconeItem;
   let pecas = 1;
 
+  if (i.tipo === 'SERVICO') {
+    // Só serviço (sem produto): sem medidas e sem contagem de peças.
+    for (const sv of e.servicos ?? []) {
+      const q = Number(sv.quantidade);
+      add(nomeSku(sv.sku) ?? sv.sku, Number.isFinite(q) && q !== 1 ? `${String(sv.quantidade).replace('.', ',')}x` : 'Incluso');
+    }
+    // Título automático já lista os serviços; com texto do vendedor, os serviços aparecem como detalhes.
+    return { titulo, medidas: '', detalhes: detalhes.filter((x) => !titulo.includes(x.rotulo)), pecas: 0, icone: 'SERVICO' as IconeItem };
+  }
   if (i.tipo === 'CORTINA') {
     icone = 'CORTINA';
     const conf = ({ WAVE: 'Wave', PREGA: 'Prega macho', FRANZIDO: 'Franzida' } as Record<string, string>)[e.confeccao ?? ''] ?? '';
@@ -89,7 +99,10 @@ export function descreverItem(i: Pick<ItemCompleto, 'tipo' | 'descricaoComercial
     add('Tecido', nomeSku(e.tecido?.sku));
     add('Forro', nomeSku(e.forro?.sku ?? undefined));
     add('Abertura', e.numFolhas === 2 ? 'Central (2 folhas)' : e.numFolhas === 1 ? 'Lateral (1 folha)' : null);
-    add('Trilho / varão', nomeSku(e.skus?.trilho ?? SKUS_CORTINA_PADRAO.trilho));
+    if (e.trilhoMotorizado) {
+      add('Trilho', nomeSku(e.trilhoMotorizado));
+      add('Acionamento', 'Motorizado');
+    } else add('Trilho / varão', nomeSku(e.skus?.trilho ?? SKUS_CORTINA_PADRAO.trilho));
   } else {
     const produto = nomeSku(e.sku) ?? titulo;
     icone = /horizonta|venezian|alum[ií]nio|madeira/i.test(produto) ? 'HORIZONTAL' : /vertica/i.test(produto) ? 'VERTICAL' : 'ROLO';
@@ -98,7 +111,8 @@ export function descreverItem(i: Pick<ItemCompleto, 'tipo' | 'descricaoComercial
     const lado = e.ladoComando === 'ESQUERDO' ? 'comando à esquerda' : e.ladoComando === 'DIREITO' ? 'comando à direita' : null;
     add('Acionamento', e.acionamento === 'MOTORIZADO' ? 'Motorizado' : ['Manual', lado].filter(Boolean).join(' · '));
     add('Fixação', e.fixacao === 'TETO' ? 'No teto' : e.fixacao === 'PAREDE' ? 'Na parede' : null);
-    const acab = [e.possuiBando ? 'bandô' : null, e.possuiGuiaLateral ? 'guia lateral' : null, e.possuiCalhaInferior ? 'calha inferior' : null].filter(Boolean).join(', ');
+    const bando = i.componentes.some((c) => /sanefa/i.test(c.descricao ?? '')) ? 'sanefa' : 'bandô';
+    const acab = [e.possuiBando ? bando : null, e.possuiGuiaLateral ? 'guia lateral' : null, e.possuiCalhaInferior ? 'calha inferior' : null].filter(Boolean).join(', ');
     add('Acabamento', acab ? acab.charAt(0).toUpperCase() + acab.slice(1) : null);
   }
   add('Instalação', instalacao ? 'Inclusa' : null);
@@ -245,6 +259,10 @@ function desenharIcone(doc: Doc, tipo: IconeItem, x: number, y: number, t = 34) 
     doc.lineWidth(0.5);
     doc.moveTo(l + 4, top + 2).lineTo(l + 4, bot).stroke();
     doc.moveTo(r - 4, top + 2).lineTo(r - 4, bot).stroke();
+  } else if (tipo === 'SERVICO') {
+    // chave de boca simples
+    doc.lineWidth(2.2).moveTo(l + 2, bot - 2).lineTo(r - 6, top + 6).stroke();
+    doc.lineWidth(1.4).circle(r - 4.5, top + 4.5, 4).stroke();
   } else if (tipo === 'VERTICAL') {
     doc.rect(l - 1, top, r - l + 2, 2.5).fill();
     doc.lineWidth(1.6);
@@ -395,7 +413,7 @@ export function gerarPdf(p: DadosProposta, opcoes: { comprimir?: boolean } = {})
           for (const c of i.componentes) fonte('N', 8.5, CORES.secundario).text(`•  ${c.descricao}: ${c.quantidade}`, xTexto + 4, doc.y, { width: larguraTexto - 4 });
           yFim = doc.y;
         }
-        fonte('N', 8.5, CORES.secundario).text(`${i.pecas} ${i.pecas === 1 ? 'peça' : 'peças'}`, xValor, y + 1, { width: colValor, align: 'right' });
+        if (i.pecas > 0) fonte('N', 8.5, CORES.secundario).text(`${i.pecas} ${i.pecas === 1 ? 'peça' : 'peças'}`, xValor, y + 1, { width: colValor, align: 'right' });
         fonte('B', 11.5).text(i.valor, xValor, doc.y + 1, { width: colValor, align: 'right' });
         doc.y = Math.max(yFim, doc.y, y + 34) + 10;
         if (n < a.itens.length - 1) { regua(doc.y, CORES.linha, 0.6, xTexto); doc.y += 10; }

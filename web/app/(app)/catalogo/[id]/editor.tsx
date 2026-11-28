@@ -78,6 +78,7 @@ export function EditorProduto({ id }: { id: string | null }) {
   const [valores, setValores] = useState<Valores>({});
   const [extras, setExtras] = useState('');
   const [disponibilidade, setDisponibilidade] = useState('DISPONIVEL');
+  const [confirmarExcluir, setConfirmarExcluir] = useState(false);
   const [previsao, setPrevisao] = useState('');
   const [custo, setCusto] = useState('');
   const [venda, setVenda] = useState('');
@@ -164,6 +165,15 @@ export function EditorProduto({ id }: { id: string | null }) {
     catch (err) { setErro((err as Error).message); }
   }
 
+  /** Exclui de vez (só ADMIN). Produto já usado em orçamento ou compra é recusado pela API: aí, inative. */
+  async function excluir() {
+    if (!produto) return;
+    try {
+      await api(`/api/catalogo/produtos/${produto.id}`, { method: 'DELETE' });
+      router.replace('/catalogo');
+    } catch (err) { setErro((err as Error).message); setConfirmarExcluir(false); }
+  }
+
   if (id && !produto) return erro ? <Mensagens erro={erro} /> : <p className="text-sm text-muted-foreground">Carregando…</p>;
   const ehTrilho = final?.trilho ?? false;
   // Selects em cascata: Categoria → Subcategoria → Tipo (só aparece o nível que existe).
@@ -179,7 +189,17 @@ export function EditorProduto({ id }: { id: string | null }) {
         <Button asChild variant="ghost" size="sm"><Link href="/catalogo">← Catálogo</Link></Button>
         <h1 className="flex-1 text-xl font-semibold">{produto ? `${produto.sku} · ${produto.nome}` : 'Novo produto'}</h1>
         {produto && <Button variant="outline" size="sm" onClick={alternarAtivo}>{produto.ativo ? 'Inativar' : 'Reativar'}</Button>}
+        {produto && <Button variant="outline" size="sm" className="text-destructive" onClick={() => setConfirmarExcluir(true)}>Excluir</Button>}
       </div>
+      {produto && confirmarExcluir && (
+        <div role="alertdialog" className="flex flex-col gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
+          <p>Excluir <strong>{produto.sku} · {produto.nome}</strong> de vez? Não dá para desfazer. Se ele já foi usado em algum orçamento, o sistema não deixa: aí use Inativar.</p>
+          <div className="flex gap-2">
+            <Button size="sm" variant="destructive" onClick={excluir}>Excluir de vez</Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmarExcluir(false)}>Cancelar</Button>
+          </div>
+        </div>
+      )}
       <Mensagens erro={erro} ok={ok} />
       {produto && ultima?.temSubcategorias && (
         <p className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm">

@@ -13,7 +13,7 @@ export const PERMISSOES = [
   'medicoes.proprias', 'medicoes.todas',
   'pedidos.proprios', 'pedidos.todos',
   'calculo.usar',
-  'catalogo.ver', 'catalogo.editar', 'precos.editar',
+  'catalogo.ver', 'catalogo.editar', 'catalogo.excluir', 'precos.editar',
   'custos.ver',
   'margem.liberar_vermelho',
   'fornecedores.ver', 'fornecedores.editar',
