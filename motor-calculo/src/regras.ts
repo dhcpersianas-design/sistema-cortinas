@@ -89,9 +89,9 @@ export function regrasDoModelo(e: ModeloEscolhido, obter: Obter): RegraModelo[] 
   if (forro && lRoloF) add('Largura do rolo do forro', `${m(lRoloF)}. Acima disso, corte em tiras.`);
   const motor = e.trilhoMotorizado ? obter(e.trilhoMotorizado) : undefined;
   if (motor) {
-    const faixas = (motor.metadata?.['faixas'] ?? []) as { ate: number }[];
+    const faixas = (motor.metadata?.['faixas_skus'] ?? motor.metadata?.['faixas'] ?? []) as { ate: number }[];
     const max = faixas.length ? Math.max(...faixas.map((f) => Number(f.ate))) : null;
-    add('Trilho motorizado', `Sistema completo (trilho pronto com motor): não soma trilho comum, deslizantes, terminais nem garras. Preço pela faixa de largura${max ? `; máximo ${m(max)} (acima a fábrica não produz)` : ''}.`);
+    add('Trilho motorizado', `Sistema completo (trilho pronto com motor): não soma trilho comum, deslizantes, terminais nem garras. Preço pela faixa de largura (o sistema escolhe o trilho "ATÉ" a medida que atende: 4,35 m usa o de até 4,50 m)${max ? `; máximo ${m(max)} (acima a fábrica não produz)` : ''}.`);
     add('Controle remoto', 'Não vem com o trilho: confira o controle sugerido no orçamento (1 canal aciona 1 peça).');
     const modelo = String(motor.metadata?.['modelo'] ?? '');
     if (modelo) add('Modelo do trilho', modelo === 'WAVE' ? 'Wave (botão): só para cortina Wave.' : 'Standard (franzida): para cortina franzida ou prega.');

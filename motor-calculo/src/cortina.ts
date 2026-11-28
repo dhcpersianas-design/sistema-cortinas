@@ -93,20 +93,50 @@ export interface EntradaCortina {
 }
 
 /** Faixa de preço do trilho motorizado: vale a primeira com `ate` >= largura. */
-export interface FaixaTrilhoMotorizado { ate: number; custo: number }
+export interface FaixaTrilhoMotorizado { ate: number; custo: number; sku?: string }
 
-export function precoTrilhoMotorizado(p: Produto, largura: Decimal): { faixa: FaixaTrilhoMotorizado; custo: Decimal; venda: Decimal } {
+/** Uma faixa = um produto do catálogo (Gabriel, 28/11/2026): `metadata.faixas_skus` lista as faixas da família. */
+interface FaixaSku { ate: number; sku: string }
+
+function faixasSkus(p: Produto): FaixaSku[] {
+  return ((p.metadata?.['faixas_skus'] ?? []) as FaixaSku[])
+    .filter((f) => Number.isFinite(Number(f?.ate)) && typeof f?.sku === 'string')
+    .sort((a, b) => Number(a.ate) - Number(b.ate));
+}
+
+/**
+ * Trilho motorizado pela largura. Cada faixa é um produto ("TRILHO MOTORIZADO - WAVE - ATÉ 4,50 MT - BRANCO"):
+ * o vendedor escolhe modelo e cor e o sistema troca para o produto da faixa que atende a largura
+ * (4,35 m -> ATÉ 4,50; 4,00 m -> ATÉ 4,00). Máximo = maior faixa (12 m). Formato antigo
+ * (`metadata.faixas` com custo dentro de um produto só) continua aceito.
+ */
+export function precoTrilhoMotorizado(p: Produto, largura: Decimal, catalogo?: Catalogo): { faixa: FaixaTrilhoMotorizado; produto: Produto; custo: Decimal; venda: Decimal } {
+  const porSku = faixasSkus(p);
+  if (porSku.length > 0 && catalogo) {
+    const faixa = porSku.find((f) => largura.lte(f.ate));
+    const max = porSku[porSku.length - 1]!.ate;
+    if (!faixa) throw new ErroEntrada(`${p.nome}: largura ${f2(largura)} m acima do máximo de ${f2(d(max))} m (a fábrica não produz). Divida em mais cortinas.`);
+    const prod = faixa.sku === p.sku ? p : catalogo.obter(faixa.sku);
+    return { faixa: { ate: Number(faixa.ate), custo: Number(prod.custoUnitario), sku: prod.sku }, produto: prod, custo: d(prod.custoUnitario), venda: d(prod.precoVendaUnitario) };
+  }
   const faixas = ((p.metadata?.['faixas'] ?? []) as FaixaTrilhoMotorizado[])
     .filter((f) => Number.isFinite(Number(f?.ate)) && Number.isFinite(Number(f?.custo)))
     .sort((a, b) => Number(a.ate) - Number(b.ate));
-  if (faixas.length === 0) throw new ErroEntrada(`${p.nome}: cadastre as faixas de preço por largura.`);
+  if (faixas.length === 0) {
+    const ate = p.metadata?.['faixa_ate'];
+    if (ate !== undefined && Number.isFinite(Number(ate))) {
+      if (largura.gt(Number(ate))) throw new ErroEntrada(`${p.nome}: largura ${f2(largura)} m maior que a faixa deste trilho (até ${f2(d(Number(ate)))} m). Escolha a faixa maior.`);
+      return { faixa: { ate: Number(ate), custo: Number(p.custoUnitario), sku: p.sku }, produto: p, custo: d(p.custoUnitario), venda: d(p.precoVendaUnitario) };
+    }
+    throw new ErroEntrada(`${p.nome}: cadastre as faixas de preço por largura.`);
+  }
   const faixa = faixas.find((f) => largura.lte(f.ate));
   const max = faixas[faixas.length - 1]!.ate;
   if (!faixa) throw new ErroEntrada(`${p.nome}: largura ${f2(largura)} m acima do máximo de ${f2(d(max))} m (a fábrica não produz). Divida em mais cortinas.`);
   const custoTab = d(p.custoUnitario);
   const fator = custoTab.gt(0) ? d(p.precoVendaUnitario).div(custoTab) : new Decimal(1);
   const custo = d(faixa.custo);
-  return { faixa, custo, venda: custo.mul(fator).toDecimalPlaces(2, Decimal.ROUND_HALF_UP) };
+  return { faixa, produto: p, custo, venda: custo.mul(fator).toDecimalPlaces(2, Decimal.ROUND_HALF_UP) };
 }
 
 export interface ResultadoTecido {
@@ -205,7 +235,7 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
   const alertas: Alerta[] = [];
   const comps: ComponenteCalculado[] = [];
 
-  const pMotor = e.trilhoMotorizado ? catalogo.obter(e.trilhoMotorizado) : undefined;
+  let pMotor = e.trilhoMotorizado ? catalogo.obter(e.trilhoMotorizado) : undefined;
   const trilho = pMotor ? undefined : obterAuxiliar(catalogo, skus.trilho, alertas, 'O trilho/varão');
   const ehVarao = trilho ? metaStr(trilho, 'tipo') === 'VARAO' : false;
   const vias = pMotor ? metaNum(pMotor, 'vias', 1) : trilho ? metaNum(trilho, 'vias', 1) : new Decimal(e.forro ? 2 : 1);
@@ -301,9 +331,10 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
   // ---------- Trilho motorizado (sistema completo: trilho + motor) ----------
   let faixaMotor: FaixaTrilhoMotorizado | undefined;
   if (pMotor) {
-    const preco = precoTrilhoMotorizado(pMotor, L);
+    const preco = precoTrilhoMotorizado(pMotor, L, catalogo);
     faixaMotor = preco.faixa;
-    comps.push(componente({ ...pMotor, custoUnitario: preco.custo, precoVendaUnitario: preco.venda }, new Decimal(1),
+    pMotor = preco.produto;
+    comps.push(componente({ ...preco.produto, custoUnitario: preco.custo, precoVendaUnitario: preco.venda }, new Decimal(1),
       `Trilho motorizado: largura ${f2(L)} m -> faixa até ${f2(d(preco.faixa.ate))} m`));
     const modelo = metaStr(pMotor, 'modelo');
     const precisa = e.confeccao === 'WAVE' ? 'WAVE' : 'FRANZIDA';
