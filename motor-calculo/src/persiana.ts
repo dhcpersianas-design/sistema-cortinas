@@ -1,8 +1,8 @@
 import { Decimal, d, ErroEntrada, naoNegativo, positivo, ZERO, type Numerico } from './decimal.js';
 import { componente, f2, fecharResultado, metaNum, obterAuxiliar } from './comum.js';
 import {
-  acionamentosDoModelo, adicionaisAplicados, adicionaisDoModelo, limitesDoModelo, somarAdicionais,
-  bandosDoModelo, rotuloBando, bandoIncluso,
+  acionamentosDoModelo, adicionaisAplicados, textoAdicional, adicionaisDoModelo, limitesDoModelo, somarAdicionais,
+  bandosDoModelo, rotuloBando, bandoIncluso, adicionalCompativel,
 } from './linha-persiana.js';
 import type { Alerta, Catalogo, ComponenteCalculado, Produto, ResultadoCalculo } from './tipos.js';
 
@@ -166,7 +166,13 @@ export function calcularPersiana(e: EntradaPersiana, catalogo: Catalogo): Result
   if (e.modeloAcionamento && modelosOk.length > 0 && !modelosOk.includes(e.modeloAcionamento)) {
     throw new ErroEntrada(`Modelo de acionamento ${e.modeloAcionamento} não existe para ${pPer.nome} (use ${modelosOk.join(', ')}).`);
   }
-  const adicionais = adicionaisAplicados(pPer, e.adicionais, { larguraPeca: L, motorizado });
+  const adicionais = adicionaisAplicados(pPer, e.adicionais, { larguraPeca: L, motorizado, modelo: e.modeloAcionamento });
+  for (const a of adicionais) {
+    if (a.automatico?.larg_menor_que !== undefined) {
+      alertas.push({ codigo: 'ADICIONAL_AUTOMATICO', severidade: 'ATENCAO',
+        mensagem: `Largura ${f2(L)}m menor que ${f2(d(a.automatico.larg_menor_que))}m: a fábrica cobra "${textoAdicional(a)}" (já somado).` });
+    }
+  }
   const lim = limitesDoModelo(pPer, motorizado, adicionais.map((a) => a.codigo));
 
   // ---------- Passo A: área ----------
@@ -232,7 +238,7 @@ export function calcularPersiana(e: EntradaPersiana, catalogo: Catalogo): Result
   }
   const escolhidos = new Set(adicionais.map((a) => a.codigo));
   for (const a of adicionaisDoModelo(pPer)) {
-    if (a.sugerir_area_acima !== undefined && !escolhidos.has(a.codigo) && L.mul(H).gt(a.sugerir_area_acima)) {
+    if (a.sugerir_area_acima !== undefined && !escolhidos.has(a.codigo) && adicionalCompativel(a, { motorizado, modelo: e.modeloAcionamento }) && L.mul(H).gt(a.sugerir_area_acima)) {
       alertas.push({ codigo: 'SUGERIR_ADICIONAL', severidade: 'ATENCAO',
         mensagem: `Peça com ${f2(L.mul(H))}m² (acima de ${f2(d(a.sugerir_area_acima))}m²): a fábrica recomenda "${a.rotulo}". Marque o opcional.` });
     }
@@ -268,7 +274,12 @@ export function calcularPersiana(e: EntradaPersiana, catalogo: Catalogo): Result
   if (e.skuBando && opcoesBando.length > 0 && !opcoesBando.includes(e.skuBando)) {
     throw new ErroEntrada(`${nomeBando} ${e.skuBando} não serve para ${pPer.nome} (use ${opcoesBando.join(', ')}).`);
   }
-  const skuBando = e.skuBando ?? opcoesBando[0] ?? skus.bando;
+  const obterOuNada = (sku: string) => { try { return catalogo.obter(sku); } catch { return undefined; } };
+  const bandoServe = (sku: string) => motorizado || obterOuNada(sku)?.metadata?.['somente_motorizado'] !== true;
+  if (e.possuiBando && e.skuBando && !bandoServe(e.skuBando)) {
+    throw new ErroEntrada(`${obterOuNada(e.skuBando)?.nome ?? e.skuBando} é só para persiana motorizada.`);
+  }
+  const skuBando = e.skuBando ?? opcoesBando.find(bandoServe) ?? opcoesBando[0] ?? skus.bando;
   const comBando = !!e.possuiBando && !bandoIncluso(pPer);
   if (e.possuiBando && bandoIncluso(pPer)) {
     alertas.push({ codigo: 'BANDO_INCLUSO', severidade: 'INFO', mensagem: `${pPer.nome} já vem com o bandô: não somei bandô avulso.` });

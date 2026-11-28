@@ -1,10 +1,13 @@
 'use client';
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { classeSelect } from '@/components/cadastro/campos';
-import { MODELOS_ACIONAMENTO, adicionaisDoModelo, acionamentosDoModelo, bandoIncluso, bandosDoModelo, rotuloBando, regrasDoModelo, textoAdicional, textoDisponibilidade } from '@sistema/motor-calculo/navegador';
+import {
+  MODELOS_ACIONAMENTO, acionamentosDoModelo, adicionaisCompativeis, bandosDoModelo, calcularItem, regrasDoModelo, rotuloBando,
+  temBando, temGuiaLateral, textoAdicional, textoDisponibilidade, type Catalogo, type EntradaItem,
+} from '@sistema/motor-calculo/navegador';
 import type { Item, ProdutoCatalogo } from '@/lib/orcamentos-offline';
 
 /**
@@ -31,6 +34,8 @@ const deMetros = (v: unknown, u: Unidade) => (v == null || v === '' ? '' : u ===
 
 type Props = {
   produtos: ProdutoCatalogo[];
+  /** Catálogo do motor: confere as regras do fabricante enquanto o vendedor digita. */
+  catalogo?: Catalogo | null;
   ambientes: string[];
   inicial?: Item;
   ambienteSugerido?: string;
@@ -40,7 +45,7 @@ type Props = {
   onCancelar: () => void;
 };
 
-export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temControleNoOrcamento, onSalvar, onCancelar }: Props) {
+export function FormItem({ produtos, catalogo, ambientes, inicial, ambienteSugerido, temControleNoOrcamento, onSalvar, onCancelar }: Props) {
   const e = (inicial?.entrada ?? {}) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
   const [tipo, setTipo] = useState<'CORTINA' | 'PERSIANA' | 'SERVICO'>(inicial?.tipo ?? 'CORTINA');
   // Cortina motorizada = trilho motorizado Slim (sistema completo) no lugar do trilho comum.
@@ -54,11 +59,14 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
   // Modelo escolhido agora (para o quadro de regras). Os selects são livres; o form avisa quando mudam.
   const [escolha, setEscolha] = useState<Record<string, string>>(() => ({
     persiana: e.sku ?? '', tecido: e.tecido?.sku ?? '', forro: e.forro?.sku ?? '', trilho: e.skus?.trilho ?? '', acionamento: e.acionamento ?? 'MANUAL',
-    trilhoMotorizado: e.trilhoMotorizado ?? '',
+    trilhoMotorizado: e.trilhoMotorizado ?? '', modeloAcionamento: e.modeloAcionamento ?? '',
   }));
+  const formRef = useRef<HTMLFormElement>(null);
+  const [mudancas, setMudancas] = useState(0);
   function aoMudar(ev: React.FormEvent<HTMLFormElement>) {
     const t = ev.target as HTMLSelectElement;
-    if (['persiana', 'tecido', 'forro', 'trilho', 'acionamento', 'trilhoMotorizado'].includes(t.name)) setEscolha((x) => ({ ...x, [t.name]: t.value }));
+    if (['persiana', 'tecido', 'forro', 'trilho', 'acionamento', 'trilhoMotorizado', 'modeloAcionamento'].includes(t.name)) setEscolha((x) => ({ ...x, [t.name]: t.value }));
+    setMudancas((n) => n + 1);
   }
 
   const porCategoria = useMemo(() => {
@@ -80,21 +88,90 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
     };
   }, [produtos]);
 
-  const regras = useMemo(() => {
+  const obterProduto = (sku: string) => produtos.find((p) => p.sku === sku);
+  // Regras fixas que sempre aparecem: só a do tecido da cortina (largura do rolo e corte em tiras)
+  // e produto escolhido que não está disponível. O resto só aparece quando a medida foge do padrão.
+  const regrasFixas = useMemo(() => {
     const obter = (sku: string) => produtos.find((p) => p.sku === sku);
     // Sem escolha ainda: vale a primeira opção da lista (é a que aparece selecionada).
     const ou = (v: string | undefined, lista: ProdutoCatalogo[]) => v || lista[0]?.sku;
-    if (tipo === 'SERVICO') return [];
+    if (tipo === 'SERVICO') return { tecido: [], disponibilidade: [] };
     const trilhoMot = cortinaMotor ? ou(escolha.trilhoMotorizado, porCategoria.trilhosMotorizados) : undefined;
-    return regrasDoModelo(tipo === 'PERSIANA'
-      ? { tipo, persiana: ou(escolha.persiana, porCategoria.persianas), acionamento: escolha.acionamento }
-      : { tipo, confeccao, tecido: ou(escolha.tecido, porCategoria.tecidos), forro: escolha.forro || undefined, trilho: ou(escolha.trilho, porCategoria.trilhos), trilhoMotorizado: trilhoMot }, obter)
-      .concat(disponibilidadeEscolhida(tipo === 'PERSIANA'
-        ? [ou(escolha.persiana, porCategoria.persianas)]
-        : [ou(escolha.tecido, porCategoria.tecidos), escolha.forro, cortinaMotor ? trilhoMot : ou(escolha.trilho, porCategoria.trilhos)], obter));
+    const tecido = tipo === 'CORTINA'
+      ? regrasDoModelo({ tipo, confeccao, tecido: ou(escolha.tecido, porCategoria.tecidos), forro: escolha.forro || undefined, trilho: ou(escolha.trilho, porCategoria.trilhos), trilhoMotorizado: trilhoMot }, obter)
+        .filter((r) => r.titulo.startsWith('Largura do rolo'))
+      : [];
+    const disponibilidade = disponibilidadeEscolhida(tipo === 'PERSIANA'
+      ? [ou(escolha.persiana, porCategoria.persianas)]
+      : [ou(escolha.tecido, porCategoria.tecidos), escolha.forro, cortinaMotor ? trilhoMot : ou(escolha.trilho, porCategoria.trilhos)], obter);
+    return { tecido, disponibilidade };
   }, [tipo, confeccao, escolha, produtos, porCategoria, cortinaMotor]);
   /** Persiana escolhida agora: opcionais e modelos de acionamento da linha dela. */
   const persianaAtual = useMemo(() => produtos.find((p) => p.sku === (escolha.persiana || porCategoria.persianas[0]?.sku)), [escolha.persiana, produtos, porCategoria]);
+  const persianaMotorizada = escolha.acionamento === 'MOTORIZADO';
+  const opcoesBando = bandosDoModelo(persianaAtual, { motorizado: persianaMotorizada, obter: obterProduto });
+  const opcionais = adicionaisCompativeis(persianaAtual, { motorizado: persianaMotorizada, modelo: escolha.modeloAcionamento || undefined });
+
+  /** Monta a entrada do item a partir do formulário. `medida` devolve null quando a medida ainda não foi digitada. */
+  function lerEntrada(f: FormData, medida: (k: string, rotulo: string, lim: number) => string | null): Record<string, unknown> | null {
+    const s = (k: string) => String(f.get(k) ?? '').trim();
+    if (tipo === 'CORTINA') {
+      const forro = s('forro');
+      const larguraTrilho = medida('largura', 'Largura do trilho', LIM.largura);
+      const alturaPronta = medida('altura', 'Altura pronta', LIM.altura);
+      if (!larguraTrilho || !alturaPronta) return null;
+      return {
+        larguraTrilho, alturaPronta,
+        numFolhas: Number(s('numFolhas')) as 1 | 2,
+        confeccao: s('confeccao'),
+        // Fator em branco = padrão do motor (wave 2,8; prega macho 3,0; franzido 2,5; forro 1,8).
+        tecido: { sku: s('tecido'), ...(s('fator') ? { fator: s('fator').replace(',', '.') } : {}) },
+        ...(forro ? { forro: { sku: forro, ...(s('fatorForro') ? { fator: s('fatorForro').replace(',', '.') } : {}) } } : {}),
+        skus: {
+          ...(cortinaMotor ? {} : { trilho: s('trilho') }),
+          ...(s('maoObra') ? { maoObraTecido: s('maoObra') } : {}),
+          ...(cortinaMotor && s('controle') ? { controle: s('controle') } : {}),
+        },
+        ...(cortinaMotor ? { trilhoMotorizado: s('trilhoMotorizado'), qtdControles: s('controle') ? 1 : 0 } : {}),
+      };
+    }
+    const modo = s('modoMedida');
+    const larg = medida('largura', 'Largura', LIM.largura);
+    const alt = medida('altura', 'Altura', LIM.altura);
+    if (!larg || !alt) return null;
+    const motor = s('acionamento') === 'MOTORIZADO';
+    const bando = f.get('possuiBando') === 'on';
+    return {
+      sku: s('persiana'),
+      medida: modo === 'PRODUCAO' ? { tipo: 'PRODUCAO', largura: larg, altura: alt } : { tipo: 'VAO_BRUTO', modo, largura: larg, altura: alt },
+      acionamento: s('acionamento'), ladoComando: s('ladoComando'), sentidoEnrolamento: s('sentidoEnrolamento'),
+      possuiBando: bando, ...(bando && s('skuBando') ? { skuBando: s('skuBando') } : {}),
+      possuiGuiaLateral: f.get('possuiGuiaLateral') === 'on',
+      ...(s('modeloAcionamento') ? { modeloAcionamento: s('modeloAcionamento') } : {}),
+      ...(f.getAll('adicional').length ? { adicionais: f.getAll('adicional').map(String) } : {}),
+      ...(motor ? {
+        qtdControles: s('controle') ? 1 : 0, qtdHubs: inteiro(s('qtdHubs'), 'Hub Wi-Fi'),
+        ...(s('controle') ? { skus: { controle: s('controle') } } : {}),
+      } : {}),
+    };
+  }
+
+  // Conferência ao vivo: calcula o item com o que está digitado e mostra só o que foge do padrão do fabricante.
+  const [previa, setPrevia] = useState<{ avisos: { critico: boolean; texto: string }[] } | null>(null);
+  useEffect(() => {
+    const form = formRef.current;
+    if (!form || !catalogo || tipo === 'SERVICO') { setPrevia(null); return; }
+    const f = new FormData(form);
+    let entrada: Record<string, unknown> | null = null;
+    try { entrada = lerEntrada(f, (k) => paraMetros(String(f.get(k) ?? '').trim(), unidade)); } catch { entrada = null; }
+    if (!entrada) { setPrevia(null); return; }
+    try {
+      const r = calcularItem({ tipo, entrada } as unknown as EntradaItem, [], catalogo);
+      setPrevia({ avisos: r.alertas.filter((a) => a.codigo !== 'BANDO_INCLUSO').map((a) => ({ critico: a.severidade === 'CRITICO', texto: a.mensagem })) });
+    } catch (err) {
+      setPrevia({ avisos: [{ critico: true, texto: (err as Error).message }] });
+    }
+  }, [mudancas, tipo, cortinaMotor, confeccao, unidade, escolha, catalogo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function salvar(ev: React.FormEvent<HTMLFormElement>) {
     ev.preventDefault();
@@ -128,42 +205,9 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
           }),
           ...(s('descricaoServico') ? { descricao: s('descricaoServico') } : {}),
         };
-      } else if (tipo === 'CORTINA') {
-        const forro = s('forro');
-        entrada = {
-          larguraTrilho: medida('largura', 'Largura do trilho', LIM.largura),
-          alturaPronta: medida('altura', 'Altura pronta', LIM.altura),
-          numFolhas: Number(s('numFolhas')) as 1 | 2,
-          confeccao: s('confeccao'),
-          // Fator em branco = padrão do motor (wave 2,8; prega macho 3,0; franzido 2,5; forro 1,8).
-          tecido: { sku: s('tecido'), ...(s('fator') ? { fator: s('fator').replace(',', '.') } : {}) },
-          ...(forro ? { forro: { sku: forro, ...(s('fatorForro') ? { fator: s('fatorForro').replace(',', '.') } : {}) } } : {}),
-          skus: {
-            ...(cortinaMotor ? {} : { trilho: s('trilho') }),
-            ...(s('maoObra') ? { maoObraTecido: s('maoObra') } : {}),
-            ...(cortinaMotor && s('controle') ? { controle: s('controle') } : {}),
-          },
-          ...(cortinaMotor ? { trilhoMotorizado: s('trilhoMotorizado'), qtdControles: s('controle') ? 1 : 0 } : {}),
-        };
-        if (cortinaMotor && !s('trilhoMotorizado')) throw new Error('Cadastre ou escolha o trilho motorizado.');
       } else {
-        const modo = s('modoMedida');
-        const larg = medida('largura', 'Largura', LIM.largura);
-        const alt = medida('altura', 'Altura', LIM.altura);
-        const motor = s('acionamento') === 'MOTORIZADO';
-        entrada = {
-          sku: s('persiana'),
-          medida: modo === 'PRODUCAO' ? { tipo: 'PRODUCAO', largura: larg, altura: alt } : { tipo: 'VAO_BRUTO', modo, largura: larg, altura: alt },
-          acionamento: s('acionamento'), ladoComando: s('ladoComando'), sentidoEnrolamento: s('sentidoEnrolamento'),
-          possuiBando: f.get('possuiBando') === 'on', ...(f.get('possuiBando') === 'on' && s('skuBando') ? { skuBando: s('skuBando') } : {}),
-          possuiGuiaLateral: f.get('possuiGuiaLateral') === 'on',
-          ...(s('modeloAcionamento') ? { modeloAcionamento: s('modeloAcionamento') } : {}),
-          ...(f.getAll('adicional').length ? { adicionais: f.getAll('adicional').map(String) } : {}),
-          ...(motor ? {
-            qtdControles: s('controle') ? 1 : 0, qtdHubs: inteiro(s('qtdHubs'), 'Hub Wi-Fi'),
-            ...(s('controle') ? { skus: { controle: s('controle') } } : {}),
-          } : {}),
-        };
+        entrada = lerEntrada(f, medida)!;
+        if (tipo === 'CORTINA' && cortinaMotor && !s('trilhoMotorizado')) throw new Error('Cadastre ou escolha o trilho motorizado.');
       }
       const mudouEntrada = JSON.stringify(entrada) !== JSON.stringify(inicial?.entrada);
       onSalvar({
@@ -186,7 +230,7 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
     : (temControleNoOrcamento(inicial?.id) ? '' : (porCategoria.controles[0]?.sku ?? ''));
 
   return (
-    <form onSubmit={salvar} onChange={aoMudar} className="grid gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2">
+    <form ref={formRef} onSubmit={salvar} onChange={aoMudar} className="grid gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="ambiente">Ambiente</Label>
         <Input id="ambiente" name="ambiente" list="lista-ambientes" defaultValue={ambienteInicial} placeholder="Sala, Quarto casal…" required />
@@ -308,24 +352,37 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
           )}
           <Selecao nome="ladoComando" rotulo="Lado do comando" valor={e.ladoComando ?? 'DIREITO'} opcoes={[['DIREITO', 'Direito'], ['ESQUERDO', 'Esquerdo']]} />
           <Selecao nome="sentidoEnrolamento" rotulo="Enrolamento" valor={e.sentidoEnrolamento ?? 'NORMAL'} opcoes={[['NORMAL', 'Normal'], ['REVERSO', 'Reverso']]} />
-          <Selecao nome="controle" rotulo="Controle remoto (se motorizada)" valor={controlePadrao}
-            opcoes={[['', 'Sem controle neste item (usa o de outra persiana)'], ...porCategoria.controles.map((p) => [p.sku, `${p.nome} (${p.metadata.canais} canal/is)`] as [string, string])]} />
-          <CampoTexto nome="qtdHubs" rotulo="Hub Wi-Fi (se motorizada)" valor={String(e.qtdHubs ?? 0)} />
-          <div className="flex flex-wrap gap-4 sm:col-span-2">
-            {!bandoIncluso(persianaAtual) && (
-              <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="possuiBando" defaultChecked={Boolean(e.possuiBando)} /> {rotuloBando(persianaAtual)} (opcional, à parte)</label>
-            )}
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="possuiGuiaLateral" defaultChecked={Boolean(e.possuiGuiaLateral)} /> Guia lateral</label>
-          </div>
-          {!bandoIncluso(persianaAtual) && bandosDoModelo(persianaAtual).length > 1 && (
-            <Selecao key={`bd-${persianaAtual?.sku}`} nome="skuBando" rotulo={`Modelo da ${rotuloBando(persianaAtual).toLowerCase()} (se marcada)`} largo
-              valor={e.sku === persianaAtual?.sku ? e.skuBando ?? bandosDoModelo(persianaAtual)[0] : bandosDoModelo(persianaAtual)[0]}
-              opcoes={bandosDoModelo(persianaAtual).map((sku) => [sku, `${produtos.find((p) => p.sku === sku)?.nome ?? sku} (${sku})`] as [string, string])} />
+          {/* Manual é só manual: controle e hub só aparecem na motorizada. */}
+          {persianaMotorizada && (
+            <>
+              <Selecao nome="controle" rotulo="Controle remoto" valor={controlePadrao}
+                opcoes={[['', 'Sem controle neste item (usa o de outra persiana)'], ...porCategoria.controles.map((p) => [p.sku, `${p.nome} (${p.metadata.canais} canal/is)`] as [string, string])]} />
+              <CampoTexto nome="qtdHubs" rotulo="Hub Wi-Fi" valor={String(e.qtdHubs ?? 0)} />
+            </>
           )}
-          {adicionaisDoModelo(persianaAtual).some((a) => !a.automatico) && (
-            <fieldset key={`ad-${persianaAtual?.sku}`} className="flex flex-col gap-1.5 sm:col-span-2">
+          {/* Bandô/sanefa e guia lateral só quando a linha tem a peça certa para ela. */}
+          {((temBando(persianaAtual) && (opcoesBando.length > 0 || bandosDoModelo(persianaAtual).length === 0)) || temGuiaLateral(persianaAtual)) && (
+            <div key={`ac-${persianaAtual?.sku}-${escolha.acionamento}`} className="flex flex-wrap gap-4 sm:col-span-2">
+              {temBando(persianaAtual) && (opcoesBando.length > 0 || bandosDoModelo(persianaAtual).length === 0) && (
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" name="possuiBando" defaultChecked={e.sku === persianaAtual?.sku && Boolean(e.possuiBando)} />
+                  {opcoesBando.length === 1 ? `${obterProduto(opcoesBando[0]!)?.nome ?? rotuloBando(persianaAtual)} (opcional, à parte)` : `${rotuloBando(persianaAtual)} (opcional, à parte)`}
+                </label>
+              )}
+              {temGuiaLateral(persianaAtual) && (
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="possuiGuiaLateral" defaultChecked={e.sku === persianaAtual?.sku && Boolean(e.possuiGuiaLateral)} /> Guia lateral</label>
+              )}
+            </div>
+          )}
+          {opcoesBando.length > 1 && (
+            <Selecao key={`bd-${persianaAtual?.sku}-${escolha.acionamento}`} nome="skuBando" rotulo={`Modelo do ${rotuloBando(persianaAtual).toLowerCase()} (se marcado)`} largo
+              valor={e.sku === persianaAtual?.sku && e.skuBando && opcoesBando.includes(e.skuBando) ? e.skuBando : opcoesBando[0]}
+              opcoes={opcoesBando.map((sku) => [sku, `${obterProduto(sku)?.nome ?? sku} (${sku})`] as [string, string])} />
+          )}
+          {opcionais.length > 0 && (
+            <fieldset key={`ad-${persianaAtual?.sku}-${escolha.acionamento}-${escolha.modeloAcionamento}`} className="flex flex-col gap-1.5 sm:col-span-2">
               <legend className="mb-1 text-sm font-medium">Opcionais desta linha</legend>
-              {adicionaisDoModelo(persianaAtual).filter((a) => !a.automatico).map((a) => (
+              {opcionais.map((a) => (
                 <label key={a.codigo} className="flex items-center gap-2 text-sm">
                   <input type="checkbox" name="adicional" value={a.codigo}
                     defaultChecked={e.sku === persianaAtual?.sku && Array.isArray(e.adicionais) && e.adicionais.includes(a.codigo)} />
@@ -338,7 +395,9 @@ export function FormItem({ produtos, ambientes, inicial, ambienteSugerido, temCo
       )}
       </Fragment>
 
-      {regras.length > 0 && <QuadroRegras regras={regras} />}
+      {tipo !== 'SERVICO' && (
+        <QuadroRegras previa={previa} disponibilidade={regrasFixas.disponibilidade} tecido={regrasFixas.tecido} conferindo={Boolean(catalogo)} />
+      )}
 
       {inicial && (
         <div className="flex flex-col gap-1.5 sm:col-span-2">
@@ -408,15 +467,41 @@ function Selecao({ nome, rotulo, valor, opcoes, largo }: { nome: string; rotulo:
   );
 }
 
-/** Quadro de atenção com as regras do modelo escolhido. Só para o vendedor: não vai para o PDF. */
-export function QuadroRegras({ regras }: { regras: { titulo: string; texto: string }[] }) {
+/**
+ * Quadro de regras do fabricante. Só para o vendedor: não vai para o PDF.
+ * Mostra SÓ o que foge do padrão com a medida digitada; se nada foge, um check verde.
+ * Exceção: a regra do tecido da cortina (largura do rolo / corte em tiras) aparece sempre.
+ */
+export function QuadroRegras({ previa, disponibilidade, tecido, conferindo }: {
+  previa: { avisos: { critico: boolean; texto: string }[] } | null;
+  disponibilidade: { titulo: string; texto: string }[];
+  tecido: { titulo: string; texto: string }[];
+  conferindo: boolean;
+}) {
+  const avisos = [...disponibilidade.map((r) => ({ critico: false, texto: `${r.titulo}: ${r.texto}` })), ...(previa?.avisos ?? [])];
   return (
-    <div role="note" className="rounded-md border border-amber-500/60 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100 sm:col-span-2">
-      <p className="font-semibold">⚠ Atenção: regras deste modelo</p>
-      <ul className="mt-1 list-disc space-y-0.5 pl-5">
-        {regras.map((r, n) => <li key={`${n}-${r.titulo}`}><span className="font-medium">{r.titulo}:</span> {r.texto}</li>)}
-      </ul>
-      <p className="mt-1 text-xs opacity-80">Só para você. O cliente não vê isto na proposta.</p>
+    <div className="flex flex-col gap-2 sm:col-span-2">
+      {avisos.length > 0 ? (
+        <div role="note" className="rounded-md border border-amber-500/60 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
+          <p className="font-semibold">⚠ Atenção: fora do padrão do fabricante</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+            {avisos.map((a, n) => <li key={n} className={a.critico ? 'font-medium text-red-700 dark:text-red-300' : ''}>{a.critico ? 'Crítico: ' : ''}{a.texto.replace(/(\d)\.(\d{2})(?=\s?m)/g, '$1,$2')}</li>)}
+          </ul>
+          <p className="mt-1 text-xs opacity-80">Só para você. O cliente não vê isto na proposta.</p>
+        </div>
+      ) : previa ? (
+        <div role="status" className="flex items-center gap-2 rounded-md border border-emerald-500/50 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
+          <span aria-hidden className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-xs text-white">✓</span>
+          A peça segue os padrões normais do fabricante.
+        </div>
+      ) : conferindo ? (
+        <p className="text-xs text-muted-foreground">Informe as medidas para conferir as regras do fabricante.</p>
+      ) : null}
+      {tecido.length > 0 && (
+        <div role="note" className="rounded-md border px-3 py-2 text-xs text-muted-foreground">
+          {tecido.map((r, n) => <p key={n}><span className="font-medium">{r.titulo}:</span> {r.texto}</p>)}
+        </div>
+      )}
     </div>
   );
 }
