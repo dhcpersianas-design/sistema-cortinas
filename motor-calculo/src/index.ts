@@ -19,6 +19,14 @@ export {
   type CamadaForro,
   type ModoCorte,
   type TipoConfeccao,
+  deslizantesModelo,
+  garrasModelo,
+  parAcima,
+  REGRAS_ACESSORIO,
+  type AcessorioModelo,
+  type AplicaAcessorio,
+  type RegraAcessorio,
+  type ModeloCortinaItem,
 } from './cortina.js';
 export {
   calcularPersiana,

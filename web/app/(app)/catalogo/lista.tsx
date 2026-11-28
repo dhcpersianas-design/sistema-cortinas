@@ -67,6 +67,7 @@ export function ListaCatalogo({ verCusto, editar }: { verCusto: boolean; editar:
         <h1 className="text-xl font-semibold">Catálogo</h1>
         {editar && (
           <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline"><Link href="/catalogo/modelos">Modelos de cortina</Link></Button>
             <Button asChild variant="outline"><Link href="/catalogo/categorias">Categorias e markup</Link></Button>
             <Button asChild variant="outline"><Link href="/catalogo/importar">Importar preços</Link></Button>
             <Button asChild><Link href="/catalogo/novo">Novo produto</Link></Button>

@@ -374,7 +374,7 @@ describe('proposta em PDF', () => {
     expect(p.avisoConferencia).toBe(true);
     expect(p.rascunho).toBe(true);
     expect(p.garantia).toBe('Contra defeitos de fabricação e instalação, no prazo indicado para cada item abaixo.');
-    expect(p.ambientes.map((a) => a.itens[0]!.garantia)).toEqual(['12 meses', '2 anos; motor 5 anos']);
+    expect(p.ambientes.map((a) => a.itens[0]!.garantia)).toEqual(['', '2 anos; motor 5 anos']); // cortina não tem garantia
     expect(p.prazoEntrega).toMatch(/^12 dias úteis \(sem contar sábado e domingo\)/);
     expect(JSON.stringify(p)).not.toMatch(/custo|1053|2018/i);
     const det = (await montarProposta(app.db, id, true))!;

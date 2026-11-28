@@ -21,6 +21,8 @@ export interface CampoTecnico {
   /** Unidade mostrada ao lado do campo (m, m², meses...). */
   sufixo?: string;
   dica?: string;
+  /** `simnao`: vem marcado quando o produto ainda não tem o dado (ex.: produto novo). */
+  padrao?: boolean;
 }
 
 export interface ModeloCadastro {
@@ -63,8 +65,8 @@ export const MODELOS_CADASTRO: Record<PerfilCadastro, ModeloCadastro> = {
     campos: [
       { chave: 'largura_rolo', rotulo: 'Largura do rolo', tipo: 'numero', sufixo: 'm', obrigatorio: true, dica: 'Ex.: 2,80 ou 3,00. Usada no cálculo do corte.' },
       { chave: 'eh_forro', rotulo: 'É forro / blackout (aparece na lista de forros)?', tipo: 'simnao' },
-      { chave: 'permite_corte_horizontal', rotulo: 'Pode virar o tecido (corte na horizontal)?', tipo: 'simnao', dica: 'Sim = sem emendas quando a altura cabe na largura do rolo.' },
-      garantia('12 meses'),
+      { chave: 'permite_corte_horizontal', rotulo: 'Pode virar o tecido (corte na horizontal)?', tipo: 'simnao', padrao: true, dica: 'Sim = sem emendas quando a altura cabe na largura do rolo.' },
+      // Sem garantia: cortina não tem garantia, só persiana (Gabriel, 28/11/2026).
     ],
   },
   ACESSORIO_PERSIANA: {

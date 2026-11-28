@@ -8,8 +8,8 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { classeSelect, classeTextarea, Mensagens } from '@/components/cadastro/campos';
 import {
-  abrirOrcamento, calcularLocal, carregarCatalogo, chamar, ErroApi, gravarOrcamento,
-  type Item, type Orcamento, type ProdutoCatalogo,
+  abrirOrcamento, calcularLocal, carregarCatalogo, carregarModelosCortina, chamar, ErroApi, gravarOrcamento,
+  type Item, type ModeloCortina, type Orcamento, type ProdutoCatalogo,
 } from '@/lib/orcamentos-offline';
 import { FormItem } from './form-item';
 import { TabelaComponentes } from './componentes';
@@ -26,6 +26,7 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
   const [carregando, setCarregando] = useState(true);
   const [produtos, setProdutos] = useState<ProdutoCatalogo[]>([]);
   const [catalogo, setCatalogo] = useState<Catalogo | null>(null);
+  const [modelos, setModelos] = useState<ModeloCortina[]>([]);
   const [form, setForm] = useState<string | null>(null); // id do item em edição ou 'novo'
   const [ambienteNovo, setAmbienteNovo] = useState<string | undefined>();
   const [abertos, setAbertos] = useState<Set<string>>(new Set());
@@ -44,6 +45,7 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
     try {
       const [r, cat] = await Promise.all([abrirOrcamento(id), carregarCatalogo().catch(() => null)]);
       if (cat) { setProdutos(cat.produtos); setCatalogo(cat.catalogo); }
+      carregarModelosCortina().then(setModelos).catch(() => {});
       if (r) { setDoc(r.orcamento); setTransicoes(r.transicoes); setPodeAprovar(Boolean(r.podeAprovar)); }
       setHistorico(null);
     } catch (e) { setErro((e as Error).message); }
@@ -325,7 +327,7 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
               {itens.map((i) => (
                 <div key={i.id} className="rounded-md border p-3">
                   {form === i.id ? (
-                    <FormItem produtos={produtos} catalogo={catalogo} ambientes={ambientes} inicial={i} temControleNoOrcamento={temControleNoOrcamento}
+                    <FormItem produtos={produtos} catalogo={catalogo} modelos={modelos} ambientes={ambientes} inicial={i} temControleNoOrcamento={temControleNoOrcamento}
                       onSalvar={salvarItem} onCancelar={() => setForm(null)} />
                   ) : (
                     <>
@@ -370,7 +372,7 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
             </div>
           ))}
           {form === 'novo' ? (
-            <FormItem produtos={produtos} catalogo={catalogo} ambientes={ambientes} ambienteSugerido={ambienteNovo} temControleNoOrcamento={temControleNoOrcamento}
+            <FormItem produtos={produtos} catalogo={catalogo} modelos={modelos} ambientes={ambientes} ambienteSugerido={ambienteNovo} temControleNoOrcamento={temControleNoOrcamento}
               onSalvar={salvarItem} onCancelar={() => setForm(null)} />
           ) : editavel && (
             <Button onClick={() => { setAmbienteNovo(undefined); setForm('novo'); }}>Incluir item (novo ambiente ou vão)</Button>
@@ -396,11 +398,12 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
               <Linha rotulo="Margem líquida" valor={pct(t.margemLiquidaPct)} />
             </div>
           )}
-          <div className="pt-2">
+          {/* Sem itens não há margem para mostrar (Gabriel, 28/11/2026). */}
+          {doc.itens.length > 0 && <div className="pt-2">
             <Badge className={corSemaforo(t?.semaforo)}>{doc.provisorio && !verCustoDoc ? 'Margem conferida ao sincronizar' : nomeSemaforo(t?.semaforo)}</Badge>
             {doc.provisorio && <span className="ml-2 text-xs text-muted-foreground">Cálculo do aparelho (provisório)</span>}
-          </div>
-          {lib?.pendente && (
+          </div>}
+          {lib?.pendente && doc.itens.length > 0 && (
             <Liberacao motivos={lib.motivos} admin={admin} salvando={salvando}
               onLiberar={(corpo) => acao(`/api/orcamentos/${id}/liberar`, corpo, 'Liberado pelo administrador.')} />
           )}
@@ -438,7 +441,7 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
               <Campo nome="validadeAte" rotulo="Validade" valor={doc.condicoes.validadeAte} tipo="date" />
               <Campo nome="prazoEntregaDias" rotulo="Prazo de entrega (dias úteis)" valor={doc.condicoes.prazoEntregaDias == null ? '' : String(doc.condicoes.prazoEntregaDias)} tipo="number" />
               <Campo nome="condicoesPagamentoTexto" rotulo="Condições de pagamento (texto)" valor={doc.condicoes.condicoesPagamentoTexto} largo dica="Ex.: 50% de sinal e 50% na instalação" />
-              <Campo nome="garantiaTexto" rotulo="Garantia" valor={doc.condicoes.garantiaTexto} largo dica="Em branco: prazo por item (12 meses; rolo, double vision e painel 2 anos; motor 5 anos)" />
+              <Campo nome="garantiaTexto" rotulo="Garantia" valor={doc.condicoes.garantiaTexto} largo dica="Em branco: prazo por item (persianas 12 meses; rolo, double vision e painel 2 anos; motor 5 anos). Cortina não tem garantia." />
               <Area nome="observacoesCliente" rotulo="Observações para o cliente (vão no PDF)" valor={doc.condicoes.observacoesCliente} />
               <Area nome="observacoesInternas" rotulo="Observações internas (não vão no PDF)" valor={doc.condicoes.observacoesInternas} />
               <label className="flex items-center gap-2 text-sm sm:col-span-2">

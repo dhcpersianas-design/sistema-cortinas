@@ -8,7 +8,7 @@ import {
   MODELOS_ACIONAMENTO, acionamentosDoModelo, adicionaisCompativeis, bandosDoModelo, calcularItem, regrasDoModelo, rotuloBando,
   temBando, temGuiaLateral, textoAdicional, textoDisponibilidade, type Catalogo, type EntradaItem,
 } from '@sistema/motor-calculo/navegador';
-import type { Item, ProdutoCatalogo } from '@/lib/orcamentos-offline';
+import { modeloParaItem, type Item, type ModeloCortina, type ProdutoCatalogo } from '@/lib/orcamentos-offline';
 
 /**
  * Cadastro de um vão (item) do orçamento: cortina, persiana ou só serviço (sem produto).
@@ -36,6 +36,8 @@ type Props = {
   produtos: ProdutoCatalogo[];
   /** Catálogo do motor: confere as regras do fabricante enquanto o vendedor digita. */
   catalogo?: Catalogo | null;
+  /** Modelos prontos de cortina (Gabriel, 28/11/2026). */
+  modelos?: ModeloCortina[];
   ambientes: string[];
   inicial?: Item;
   ambienteSugerido?: string;
@@ -45,7 +47,7 @@ type Props = {
   onCancelar: () => void;
 };
 
-export function FormItem({ produtos, catalogo, ambientes, inicial, ambienteSugerido, temControleNoOrcamento, onSalvar, onCancelar }: Props) {
+export function FormItem({ produtos, catalogo, modelos = [], ambientes, inicial, ambienteSugerido, temControleNoOrcamento, onSalvar, onCancelar }: Props) {
   const e = (inicial?.entrada ?? {}) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
   const [tipo, setTipo] = useState<'CORTINA' | 'PERSIANA' | 'SERVICO'>(inicial?.tipo ?? 'CORTINA');
   // Cortina motorizada = trilho motorizado Slim (sistema completo) no lugar do trilho comum.
@@ -53,6 +55,21 @@ export function FormItem({ produtos, catalogo, ambientes, inicial, ambienteSuger
   const [servicos, setServicos] = useState<{ sku: string; quantidade: string }[]>(() =>
     inicial?.tipo === 'SERVICO' && Array.isArray(e.servicos) ? e.servicos.map((x: { sku: string; quantidade: unknown }) => ({ sku: x.sku, quantidade: String(x.quantidade).replace('.', ',') })) : [{ sku: '', quantidade: '1' }]);
   const [confeccao, setConfeccao] = useState<string>(e.confeccao ?? 'WAVE');
+  // Modelo pronto: tecidos, trilho, acessórios e mão de obra vêm do modelo. Item antigo de um modelo
+  // que já foi excluído continua com a cópia guardada nele.
+  const [modeloId, setModeloId] = useState<string>(e.modelo?.id ?? (e.modelo ? 'COPIA' : ''));
+  const modeloAtual: ModeloCortina | undefined = useMemo(() => {
+    if (!modeloId) return undefined;
+    const m = modelos.find((x) => x.id === modeloId);
+    if (m) return m;
+    if (!e.modelo) return undefined;
+    return {
+      id: modeloId, nome: e.modelo.nome, confeccao: e.confeccao, tecidoSku: e.tecido?.sku, tecidoFator: null,
+      secundarioSku: e.forro?.sku ?? null, secundarioFator: null, trilhoSku: e.skus?.trilho, acessorios: e.modelo.acessorios ?? [],
+      maoObraSku: e.modelo.maoObra ?? null, instalacaoSku: e.modelo.instalacao ?? null, instalacaoAcima3Sku: e.modelo.instalacaoAcima3m ?? null, ativo: true,
+    } as ModeloCortina;
+  }, [modeloId, modelos]); // eslint-disable-line react-hooks/exhaustive-deps
+  const confeccaoAtual = modeloAtual?.confeccao ?? confeccao;
   const [unidade, setUnidade] = useState<Unidade>('m');
   const [erro, setErro] = useState<string | null>(null);
   const [confirmar, setConfirmar] = useState<string | null>(null);
@@ -99,15 +116,19 @@ export function FormItem({ produtos, catalogo, ambientes, inicial, ambienteSuger
     const ou = (v: string | undefined, lista: ProdutoCatalogo[]) => v || lista[0]?.sku;
     if (tipo === 'SERVICO') return { tecido: [], disponibilidade: [] };
     const trilhoMot = cortinaMotor ? ou(escolha.trilhoMotorizado, porCategoria.trilhosMotorizados) : undefined;
+    const m = modeloAtual;
     const tecido = tipo === 'CORTINA'
-      ? regrasDoModelo({ tipo, confeccao, tecido: ou(escolha.tecido, porCategoria.tecidos), forro: escolha.forro || undefined, trilho: ou(escolha.trilho, porCategoria.trilhos), trilhoMotorizado: trilhoMot }, obter)
+      ? regrasDoModelo(m
+        ? { tipo, confeccao: m.confeccao, tecido: m.tecidoSku, forro: m.secundarioSku ?? undefined, trilho: m.trilhoSku, trilhoMotorizado: trilhoMot }
+        : { tipo, confeccao, tecido: ou(escolha.tecido, porCategoria.tecidos), forro: escolha.forro || undefined, trilho: ou(escolha.trilho, porCategoria.trilhos), trilhoMotorizado: trilhoMot }, obter)
         .filter((r) => r.titulo.startsWith('Largura do rolo'))
       : [];
     const disponibilidade = disponibilidadeEscolhida(tipo === 'PERSIANA'
       ? [ou(escolha.persiana, porCategoria.persianas)]
+      : m ? [m.tecidoSku, m.secundarioSku ?? undefined, cortinaMotor ? trilhoMot : m.trilhoSku]
       : [ou(escolha.tecido, porCategoria.tecidos), escolha.forro, cortinaMotor ? trilhoMot : ou(escolha.trilho, porCategoria.trilhos)], obter);
     return { tecido, disponibilidade };
-  }, [tipo, confeccao, escolha, produtos, porCategoria, cortinaMotor]);
+  }, [tipo, confeccao, escolha, produtos, porCategoria, cortinaMotor, modeloAtual]);
   /** Persiana escolhida agora: opcionais e modelos de acionamento da linha dela. */
   const persianaAtual = useMemo(() => produtos.find((p) => p.sku === (escolha.persiana || porCategoria.persianas[0]?.sku)), [escolha.persiana, produtos, porCategoria]);
   const persianaMotorizada = escolha.acionamento === 'MOTORIZADO';
@@ -118,10 +139,29 @@ export function FormItem({ produtos, catalogo, ambientes, inicial, ambienteSuger
   function lerEntrada(f: FormData, medida: (k: string, rotulo: string, lim: number) => string | null): Record<string, unknown> | null {
     const s = (k: string) => String(f.get(k) ?? '').trim();
     if (tipo === 'CORTINA') {
-      const forro = s('forro');
       const larguraTrilho = medida('largura', 'Largura do trilho', LIM.largura);
       const alturaPronta = medida('altura', 'Altura pronta', LIM.altura);
       if (!larguraTrilho || !alturaPronta) return null;
+      const m = modeloAtual;
+      if (m) {
+        // Modelo pronto: fator digitado vale mais que o do modelo; em branco, o do modelo ou o padrão da loja.
+        const fator = s('fator') ? s('fator').replace(',', '.') : m.tecidoFator ?? undefined;
+        const fatorSec = s('fatorForro') ? s('fatorForro').replace(',', '.') : m.secundarioFator ?? undefined;
+        return {
+          larguraTrilho, alturaPronta,
+          numFolhas: Number(s('numFolhas')) as 1 | 2,
+          confeccao: m.confeccao,
+          tecido: { sku: m.tecidoSku, ...(fator ? { fator: String(fator) } : {}) },
+          ...(m.secundarioSku ? { forro: { sku: m.secundarioSku, ...(fatorSec ? { fator: String(fatorSec) } : {}) } } : {}),
+          skus: {
+            ...(cortinaMotor ? {} : { trilho: m.trilhoSku }),
+            ...(cortinaMotor && s('controle') ? { controle: s('controle') } : {}),
+          },
+          ...(cortinaMotor ? { trilhoMotorizado: s('trilhoMotorizado'), qtdControles: s('controle') ? 1 : 0 } : {}),
+          modelo: modeloId === 'COPIA' && e.modelo ? e.modelo : modeloParaItem(m),
+        };
+      }
+      const forro = s('forro');
       return {
         larguraTrilho, alturaPronta,
         numFolhas: Number(s('numFolhas')) as 1 | 2,
@@ -173,7 +213,7 @@ export function FormItem({ produtos, catalogo, ambientes, inicial, ambienteSuger
     } catch (err) {
       setPrevia({ avisos: [{ critico: true, texto: (err as Error).message }] });
     }
-  }, [mudancas, tipo, cortinaMotor, confeccao, unidade, escolha, catalogo]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mudancas, tipo, cortinaMotor, confeccao, unidade, escolha, catalogo, modeloAtual]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function salvar(ev: React.FormEvent<HTMLFormElement>) {
     ev.preventDefault();
@@ -301,22 +341,48 @@ export function FormItem({ produtos, catalogo, ambientes, inicial, ambienteSuger
         <>
           <CampoMedida nome="largura" rotulo={`Largura do trilho (${medidaRotulo})`} valor={deMetros(e.larguraTrilho, unidade)} key={`l${unidade}`} />
           <CampoMedida nome="altura" rotulo={`Altura pronta (${medidaRotulo})`} valor={deMetros(e.alturaPronta, unidade)} key={`a${unidade}`} dica="Já descontado 1 a 2 cm do piso" />
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="confeccao">Confecção</Label>
-            <select id="confeccao" name="confeccao" value={confeccao} onChange={(ev) => setConfeccao(ev.target.value)} className={classeSelect}>
-              <option value="WAVE">Wave</option><option value="PREGA">Prega macho</option><option value="FRANZIDO">Franzido</option>
-            </select>
-          </div>
-          <Selecao nome="numFolhas" rotulo="Folhas" valor={String(e.numFolhas ?? 2)} opcoes={[['2', '2 folhas'], ['1', '1 folha']]} />
-          <Selecao nome="tecido" rotulo="Tecido" valor={e.tecido?.sku} opcoes={porCategoria.tecidos.map((p) => [p.sku, `${p.nome} (${p.sku})${sufixoStatus(p)}`])} />
-          <CampoTexto nome="fator" rotulo="Fator de franzimento" valor={e.tecido?.fator ? String(e.tecido.fator).replace('.', ',') : ''}
-            dica={`Em branco: ${{ WAVE: '2,8', PREGA: '3,0', FRANZIDO: '2,5' }[confeccao] ?? ''} (padrão da loja)`} />
-          <Selecao nome="forro" rotulo="Forro" valor={e.forro?.sku ?? ''} opcoes={[['', 'Sem forro'], ...porCategoria.forros.map((p) => [p.sku, `${p.nome} (${p.sku})${sufixoStatus(p)}`] as [string, string])]} />
-          <CampoTexto nome="fatorForro" rotulo="Fator do forro" valor={e.forro?.fator ? String(e.forro.fator).replace('.', ',') : ''} dica="Em branco: 1,8 (padrão da loja)" />
-          {porCategoria.maoObra.length > 0 && (
-            <Selecao key={`mdo-${confeccao}`} nome="maoObra" rotulo="Mão de obra da confecção" largo
-              valor={e.skus?.maoObraTecido && e.confeccao === confeccao ? e.skus.maoObraTecido : (confeccao === 'WAVE' ? 'MDO-001' : porCategoria.maoObra.find((p) => /prega/i.test(p.nome))?.sku)}
-              opcoes={porCategoria.maoObra.map((p) => [p.sku, `${p.nome} (${p.sku})${sufixoStatus(p)}`])} />
+          {(modelos.length > 0 || modeloAtual) && (
+            <div className="flex flex-col gap-1.5 sm:col-span-2">
+              <Label htmlFor="modeloCortina">Modelo pronto</Label>
+              <select id="modeloCortina" value={modeloId} onChange={(ev) => setModeloId(ev.target.value)} className={classeSelect}>
+                <option value="">Montar à mão (escolher tecido, forro e trilho)</option>
+                {modeloId === 'COPIA' && modeloAtual && <option value="COPIA">{modeloAtual.nome} (modelo excluído; mantido neste item)</option>}
+                {modelos.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
+              </select>
+              <span className="text-xs text-muted-foreground">Puxa tecidos, trilho, acessórios e mão de obra cadastrados no modelo.</span>
+            </div>
+          )}
+          {modeloAtual ? (
+            <>
+              <ResumoModelo modelo={modeloAtual} nome={(sku) => obterProduto(sku)?.nome ?? sku} />
+              <Selecao nome="numFolhas" rotulo="Folhas" valor={String(e.numFolhas ?? 2)} opcoes={[['2', '2 folhas'], ['1', '1 folha']]} />
+              <CampoTexto key={`f-${modeloAtual.id}`} nome="fator" rotulo="Fator do tecido primário" valor={e.modelo && e.tecido?.fator && e.tecido.fator !== modeloAtual.tecidoFator ? String(e.tecido.fator).replace('.', ',') : ''}
+                dica={`Em branco: ${String(modeloAtual.tecidoFator ?? { WAVE: '2.8', PREGA: '3.0', FRANZIDO: '2.5' }[modeloAtual.confeccao]).replace('.', ',')}`} />
+              {modeloAtual.secundarioSku && (
+                <CampoTexto key={`fs-${modeloAtual.id}`} nome="fatorForro" rotulo="Fator do tecido secundário" valor={e.modelo && e.forro?.fator && e.forro.fator !== modeloAtual.secundarioFator ? String(e.forro.fator).replace('.', ',') : ''}
+                  dica={`Em branco: ${String(modeloAtual.secundarioFator ?? '1.8').replace('.', ',')}`} />
+              )}
+            </>
+          ) : (
+            <>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="confeccao">Confecção</Label>
+              <select id="confeccao" name="confeccao" value={confeccao} onChange={(ev) => setConfeccao(ev.target.value)} className={classeSelect}>
+                <option value="WAVE">Wave</option><option value="PREGA">Prega macho</option><option value="FRANZIDO">Franzido</option>
+              </select>
+            </div>
+            <Selecao nome="numFolhas" rotulo="Folhas" valor={String(e.numFolhas ?? 2)} opcoes={[['2', '2 folhas'], ['1', '1 folha']]} />
+            <Selecao nome="tecido" rotulo="Tecido" valor={e.tecido?.sku} opcoes={porCategoria.tecidos.map((p) => [p.sku, `${p.nome} (${p.sku})${sufixoStatus(p)}`])} />
+            <CampoTexto nome="fator" rotulo="Fator de franzimento" valor={e.tecido?.fator ? String(e.tecido.fator).replace('.', ',') : ''}
+              dica={`Em branco: ${{ WAVE: '2,8', PREGA: '3,0', FRANZIDO: '2,5' }[confeccao] ?? ''} (padrão da loja)`} />
+            <Selecao nome="forro" rotulo="Forro" valor={e.forro?.sku ?? ''} opcoes={[['', 'Sem forro'], ...porCategoria.forros.map((p) => [p.sku, `${p.nome} (${p.sku})${sufixoStatus(p)}`] as [string, string])]} />
+            <CampoTexto nome="fatorForro" rotulo="Fator do forro" valor={e.forro?.fator ? String(e.forro.fator).replace('.', ',') : ''} dica="Em branco: 1,8 (padrão da loja)" />
+            {porCategoria.maoObra.length > 0 && (
+              <Selecao key={`mdo-${confeccao}`} nome="maoObra" rotulo="Mão de obra da confecção" largo
+                valor={e.skus?.maoObraTecido && e.confeccao === confeccao ? e.skus.maoObraTecido : (confeccao === 'WAVE' ? 'MDO-001' : porCategoria.maoObra.find((p) => /prega/i.test(p.nome))?.sku)}
+                opcoes={porCategoria.maoObra.map((p) => [p.sku, `${p.nome} (${p.sku})${sufixoStatus(p)}`])} />
+            )}
+            </>
           )}
           <div className="flex flex-col gap-1.5 sm:col-span-2">
             <Label>Acionamento</Label>
@@ -330,14 +396,14 @@ export function FormItem({ produtos, catalogo, ambientes, inicial, ambienteSuger
           </div>
           {cortinaMotor ? (
             <>
-              <Selecao nome="trilhoMotorizado" rotulo="Trilho motorizado" largo valor={e.trilhoMotorizado ?? porCategoria.trilhosMotorizados.find((p) => p.metadata?.modelo === (confeccao === 'WAVE' ? 'WAVE' : 'FRANZIDA'))?.sku}
+              <Selecao nome="trilhoMotorizado" rotulo="Trilho motorizado" largo valor={e.trilhoMotorizado ?? porCategoria.trilhosMotorizados.find((p) => p.metadata?.modelo === (confeccaoAtual === 'WAVE' ? 'WAVE' : 'FRANZIDA'))?.sku}
                 opcoes={porCategoria.trilhosMotorizados.map((p) => [p.sku, Array.isArray(p.metadata?.faixas_skus)
                   ? `${String(p.nome).replace(/ - ATÉ [\d,.]+ ?MT?/i, '')} · faixa escolhida pela largura${sufixoStatus(p)}`
                   : `${p.nome} (${p.sku})${sufixoStatus(p)}`])} />
               <Selecao nome="controle" rotulo="Controle remoto (não vem com o trilho)" valor={controlePadrao} largo
                 opcoes={[['', 'Sem controle neste item (usa o de outra peça)'], ...porCategoria.controles.map((p) => [p.sku, `${p.nome} (${p.metadata.canais} canal/is)`] as [string, string])]} />
             </>
-          ) : (
+          ) : modeloAtual ? null : (
             <Selecao nome="trilho" rotulo="Trilho / varão" valor={e.skus?.trilho} opcoes={porCategoria.trilhos.map((p) => [p.sku, `${p.nome} (${p.sku})${p.tabelaBarrasCompleta ? ' · por barra' : ''}${sufixoStatus(p)}`])} largo />
           )}
         </>
@@ -417,6 +483,33 @@ export function FormItem({ produtos, catalogo, ambientes, inicial, ambienteSuger
         <Button type="button" variant="ghost" onClick={onCancelar}>Cancelar</Button>
       </div>
     </form>
+  );
+}
+
+const ROTULO_REGRA: Record<string, string> = {
+  DESLIZANTE: 'deslizante', ENTRETELA: 'entretela', TERMINAL: '6 por cortina', GARRA: 'a cada 40 cm', ML_TECIDO: 'metros do tecido', ML_TRILHO: 'metros do trilho', FIXA: 'fixo',
+};
+
+/** O que o modelo escolhido leva (só leitura). */
+function ResumoModelo({ modelo: m, nome }: { modelo: ModeloCortina; nome: (sku: string) => string }) {
+  const conf = { WAVE: 'Wave', PREGA: 'Prega macho', FRANZIDO: 'Franzido' }[m.confeccao];
+  const lista = (aplica: string) => m.acessorios.filter((a) => a.aplica === aplica).map((a) => `${nome(a.sku)} (${ROTULO_REGRA[a.regra] ?? a.regra})`).join(', ');
+  const linhas: [string, string | null][] = [
+    ['Confecção', conf],
+    ['Tecido primário', nome(m.tecidoSku)],
+    ['Acessórios do primário', lista('PRIMARIO') || null],
+    ['Tecido secundário', m.secundarioSku ? nome(m.secundarioSku) : null],
+    ['Acessórios do secundário', m.secundarioSku ? lista('SECUNDARIO') || null : null],
+    ['Trilho', nome(m.trilhoSku)],
+    ['Da cortina', lista('CORTINA') || null],
+    ['Mão de obra', m.maoObraSku ? `${nome(m.maoObraSku)} (x largura do trilho)` : null],
+  ];
+  return (
+    <dl className="grid gap-x-3 gap-y-1 rounded-md border bg-card px-3 py-2 text-sm sm:col-span-2 sm:grid-cols-[11rem_1fr]">
+      {linhas.filter(([, v]) => v).map(([r, v]) => (
+        <Fragment key={r}><dt className="text-muted-foreground">{r}</dt><dd>{v}</dd></Fragment>
+      ))}
+    </dl>
   );
 }
 

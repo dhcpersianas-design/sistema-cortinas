@@ -8,6 +8,7 @@ import { pluginAutenticacao } from './auth/plugin.js';
 import { rotasAuth } from './rotas/auth.js';
 import { rotasUsuarios } from './rotas/usuarios.js';
 import { rotasCatalogo } from './rotas/catalogo.js';
+import { rotasModelosCortina } from './rotas/modelos-cortina.js';
 import { rotasCalculo } from './rotas/calculo.js';
 import { rotasClientes } from './rotas/clientes.js';
 import { rotasFornecedores } from './rotas/fornecedores.js';
@@ -52,6 +53,7 @@ export async function criarApp(config: Config, opcoes: { log?: boolean } = {}): 
   await app.register(rotasAuth);
   await app.register(rotasUsuarios);
   await app.register(rotasCatalogo);
+  await app.register(rotasModelosCortina);
   await app.register(rotasCalculo);
   await app.register(rotasClientes);
   await app.register(rotasFornecedores);

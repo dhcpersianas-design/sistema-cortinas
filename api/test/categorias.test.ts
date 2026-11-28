@@ -241,7 +241,8 @@ describe('categorias e markup por categoria', () => {
 describe('campos do cadastro por tipo', () => {
   it('lê os campos do formulário para a metadata sem perder o que já existia', () => {
     const r = metadataDosCampos('TECIDO', { largura_rolo: '2,80', eh_forro: true, permite_corte_horizontal: false }, { outra: 'x', garantia_meses: 12 });
-    expect(r).toEqual({ metadata: { outra: 'x', largura_rolo: 2.8, eh_forro: true, permite_corte_horizontal: false }, erros: [] });
+    // Tecido não tem mais campo de garantia (cortina não tem garantia): o dado antigo fica guardado, sem uso.
+    expect(r).toEqual({ metadata: { outra: 'x', garantia_meses: 12, largura_rolo: 2.8, eh_forro: true, permite_corte_horizontal: false }, erros: [] });
     expect(metadataDosCampos('TECIDO', {}).erros).toEqual(['Preencha: Largura do rolo.']);
     expect(metadataDosCampos('TRILHO', { vias: '2', tipo: '' }, { tipo: 'VARAO' }).metadata).toEqual({ vias: 2 });
     expect(metadataDosCampos('MOTORIZACAO', { canais: '1,5' }).erros).toEqual(['Canais (só controle remoto): use número inteiro.']);

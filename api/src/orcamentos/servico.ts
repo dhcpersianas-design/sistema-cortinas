@@ -170,7 +170,8 @@ export function noEscopo(u: UsuarioSessao, c: { lojaId: string; vendedorId: stri
 
 export function situacaoLiberacao(c: Cabecalho) {
   const t = { semaforo: (c.semaforo ?? 'VERDE') as 'VERDE' | 'AMARELO' | 'VERMELHO', descontoPct: d(c.descontoPct), margemLiquidaPct: d(c.margemLiquidaPct) };
-  const ch = checarLiberacao(t, c.descontoMaxPct);
+  // Sem itens (subtotal zero) não há margem para liberar (orçamento recém-aberto).
+  const ch = d(c.subtotal ?? 0).isZero() ? { exige: false, motivos: [] } : checarLiberacao(t, c.descontoMaxPct);
   const liberado = Boolean(c.liberadoEm)
     && t.margemLiquidaPct.gte(d(c.liberadoMargemPct ?? '999'))
     && t.descontoPct.lte(d(c.liberadoDescontoPct ?? '-1'));
@@ -564,8 +565,8 @@ export async function salvarDocumento(db: Banco, u: UsuarioSessao, id: string, e
         larguraProducao: f(r.larguraProducao, 4), alturaProducao: f(r.alturaProducao, 4),
         entrada: item.entrada as Record<string, unknown>, ajustes: item.ajustes as Ajuste[],
         alertas: r.alertas,
-        // Garantia congelada no item (vai para o PDF): regra do Gabriel, 27/11/2026.
-        especificacaoTecnica: { ...r.especificacaoTecnica, garantia: garantiaDoItem(r.componentes.map((c) => c.sku), await cat()) },
+        // Garantia congelada no item (vai para o PDF): regra do Gabriel, 27/11/2026. Cortina não tem (28/11/2026).
+        especificacaoTecnica: { ...r.especificacaoTecnica, garantia: garantiaDoItem(r.componentes.map((c) => c.sku), await cat(), item.tipo) },
         custoTotal: f(r.custoTotal, 2), vendaTotal: f(r.vendaTotal, 2),
       }, r.componentes.map((c) => ({
         sku: c.sku, descricao: c.descricao, unidade: c.unidade,

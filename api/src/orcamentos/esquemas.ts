@@ -25,6 +25,24 @@ const textoCurto = (max: number) => z.string().trim().max(max);
 
 const camada = z.object({ sku, fator: num.optional(), margemBarra: num.optional() });
 
+/** Modelo pronto de cortina (cópia guardada no item): acessórios com a regra de cálculo de cada um. */
+export const APLICA_ACESSORIO = ['PRIMARIO', 'SECUNDARIO', 'CORTINA'] as const;
+export const REGRA_ACESSORIO = ['DESLIZANTE', 'ENTRETELA', 'TERMINAL', 'GARRA', 'ML_TECIDO', 'ML_TRILHO', 'FIXA'] as const;
+export const acessorioModelo = z.object({
+  sku,
+  aplica: z.enum(APLICA_ACESSORIO),
+  regra: z.enum(REGRA_ACESSORIO),
+  quantidade: num.refine((v) => Number(v) > 0 && Number(v) <= 1000, 'Quantidade do acessório: de 0 a 1000.').optional(),
+});
+export const modeloItem = z.object({
+  id: z.uuid().optional(),
+  nome: textoCurto(160).min(1),
+  acessorios: z.array(acessorioModelo).max(30),
+  maoObra: sku.optional(),
+  instalacao: sku.optional(),
+  instalacaoAcima3m: sku.optional(),
+});
+
 export const entradaCortina = z.object({
   larguraTrilho: largura,
   alturaPronta: altura,
@@ -41,6 +59,7 @@ export const entradaCortina = z.object({
   limitePeDireitoAltoM: num.optional(),
   trilhoMotorizado: sku.optional(),
   qtdControles: z.number().int().min(0).max(20).optional(),
+  modelo: modeloItem.optional(),
 });
 
 const folga = z.object({ largura: num, altura: num });

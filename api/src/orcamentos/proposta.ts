@@ -56,7 +56,7 @@ export type DadosProposta = {
   vendedor: string;
   ambientes: { nome: string; itens: ItemProposta[]; subtotal: string }[];
   subtotal: string; desconto: string | null; acrescimo: string | null; total: string;
-  condicoesPagamento: string; prazoEntrega: string | null; garantia: string; observacoes: string | null;
+  condicoesPagamento: string; prazoEntrega: string | null; garantia: string | null; observacoes: string | null;
   avisoConferencia: boolean;
 };
 
@@ -129,11 +129,15 @@ export async function montarProposta(db: Banco, id: string, detalhar: boolean): 
       NULLIF(CONCAT_WS(' - ', cidade, uf), '')) AS endereco FROM clientes WHERE id = ${c.clienteId}`)).rows as { endereco: string | null }[];
   // Garantia por item: a gravada no item (snapshot); orçamento antigo sem ela usa o catálogo de hoje.
   let catalogo: Awaited<ReturnType<typeof carregarCatalogoDoBanco>>['catalogo'] | null = null;
+  // Cortina não tem garantia, só persiana (Gabriel, 28/11/2026); item de cortina antigo também perde a dele
+  // (fica só a do motor, quando motorizada).
   const garantia = async (i: (typeof itens)[number]) => {
-    const g = (i.especificacaoTecnica as { garantia?: GarantiaItem }).garantia;
-    if (g) return textoGarantia(g);
-    catalogo ??= (await carregarCatalogoDoBanco(db)).catalogo;
-    return textoGarantia(garantiaDoItem(i.componentes.map((x) => x.sku), catalogo));
+    let g = (i.especificacaoTecnica as { garantia?: GarantiaItem }).garantia;
+    if (!g) {
+      catalogo ??= (await carregarCatalogoDoBanco(db)).catalogo;
+      g = garantiaDoItem(i.componentes.map((x) => x.sku), catalogo, i.tipo);
+    }
+    return textoGarantia(i.tipo === 'CORTINA' ? { ...g, meses: null } : g);
   };
 
   const grupos = new Map<string, DadosProposta['ambientes'][number]>();
@@ -200,7 +204,9 @@ export async function montarProposta(db: Banco, id: string, detalhar: boolean): 
     condicoesPagamento: condicoes,
     prazoEntrega: c.prazoEntregaDias != null
       ? `${c.prazoEntregaDias} dias úteis (sem contar sábado e domingo) após a confirmação do pedido e da medição.` : null,
-    garantia: c.garantiaTexto || 'Contra defeitos de fabricação e instalação, no prazo indicado para cada item abaixo.',
+    // Sem nenhum item com garantia (só cortinas): a proposta não fala em garantia.
+    garantia: c.garantiaTexto || ([...grupos.values()].some((g) => g.itens.some((i) => i.garantia))
+      ? 'Contra defeitos de fabricação e instalação, no prazo indicado para cada item abaixo.' : null),
     observacoes: c.observacoesCliente,
     avisoConferencia: !c.medidasConferidas,
   };
@@ -472,8 +478,9 @@ export function gerarPdf(p: DadosProposta, opcoes: { comprimir?: boolean } = {})
       else fonte('N', 9.5).text(texto, x0 + 14, y, { width: largura - 14, lineGap: 1.5 });
       doc.y += 5;
     };
-    marcador(p.garantia, 'Garantia: ');
+    if (p.garantia) marcador(p.garantia, 'Garantia: ');
     for (const a of p.ambientes) for (const i of a.itens) {
+      if (!i.garantia) continue;
       fonte('N', 9.5);
       quebra(16);
       const y = doc.y;
