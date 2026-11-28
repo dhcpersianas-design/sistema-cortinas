@@ -82,7 +82,9 @@ export function FormItem({ produtos, catalogo, ambientes, inicial, ambienteSuger
       persianas: m('PERSIANA', /^persiana/i),
       maoObra: m('CONFECCAO', /^m[aã]o de obra/i),
       controles: produtos.filter((p) => Number(p.metadata?.canais) > 0).sort((a, b) => Number(a.metadata.canais) - Number(b.metadata.canais)),
-      trilhosMotorizados: produtos.filter((p) => p.metadata?.trilho_motorizado === true && (p.disponibilidade !== 'FORA_DE_LINHA' || atuais.has(p.sku))),
+      // Trilho motorizado: uma opção por modelo e cor (a 1ª faixa); o cálculo troca para o produto "ATÉ" a largura.
+      trilhosMotorizados: produtos.filter((p) => p.metadata?.trilho_motorizado === true && (p.disponibilidade !== 'FORA_DE_LINHA' || atuais.has(p.sku))
+        && (!Array.isArray(p.metadata?.faixas_skus) || p.metadata.faixas_skus[0]?.sku === p.sku || atuais.has(p.sku))),
       // Só serviço: produtos da categoria Serviços (instalação, confecção, visita...).
       servicos: produtos.filter((p) => /^servi[cç]os/i.test(p.categoria) || ['INSTALACAO', 'CONFECCAO'].includes(p.perfil ?? '')),
     };
@@ -329,7 +331,9 @@ export function FormItem({ produtos, catalogo, ambientes, inicial, ambienteSuger
           {cortinaMotor ? (
             <>
               <Selecao nome="trilhoMotorizado" rotulo="Trilho motorizado" largo valor={e.trilhoMotorizado ?? porCategoria.trilhosMotorizados.find((p) => p.metadata?.modelo === (confeccao === 'WAVE' ? 'WAVE' : 'FRANZIDA'))?.sku}
-                opcoes={porCategoria.trilhosMotorizados.map((p) => [p.sku, `${p.nome} (${p.sku})${sufixoStatus(p)}`])} />
+                opcoes={porCategoria.trilhosMotorizados.map((p) => [p.sku, Array.isArray(p.metadata?.faixas_skus)
+                  ? `${String(p.nome).replace(/ - ATÉ [\d,.]+ ?MT?/i, '')} · faixa escolhida pela largura${sufixoStatus(p)}`
+                  : `${p.nome} (${p.sku})${sufixoStatus(p)}`])} />
               <Selecao nome="controle" rotulo="Controle remoto (não vem com o trilho)" valor={controlePadrao} largo
                 opcoes={[['', 'Sem controle neste item (usa o de outra peça)'], ...porCategoria.controles.map((p) => [p.sku, `${p.nome} (${p.metadata.canais} canal/is)`] as [string, string])]} />
             </>

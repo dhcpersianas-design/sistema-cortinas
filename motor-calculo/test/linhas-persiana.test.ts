@@ -145,6 +145,35 @@ describe('cortina motorizada com trilho Slim', () => {
   });
 });
 
+describe('trilho motorizado: um produto por faixa (ATÉ x MT)', () => {
+  const ates = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12];
+  const custos = [713, 777, 840, 905, 968, 1043, 1095, 1159, 1223, 1286, 1350, 1442, 1505, 1569, 1633, 1697, 1760, 1824, 1888, 1952, 2015, 2079, 2143];
+  const faixasSkus = ates.map((ate, i) => ({ ate, sku: `TST-W-${i}` }));
+  const PRODS: Produto[] = ates.map((ate, i) => ({
+    sku: `TST-W-${i}`, nome: `TRILHO MOTORIZADO - WAVE - ATÉ ${ate.toFixed(2).replace('.', ',')} MT - BRANCO`, unidade: 'PC',
+    custoUnitario: String(custos[i]), precoVendaUnitario: String(custos[i]! * 2),
+    metadata: { trilho_motorizado: true, modelo: 'WAVE', cor: 'BRANCO', vias: 1, faixa_ate: ate, faixas_skus: faixasSkus },
+  }));
+  const c4 = criarCatalogo([...PRODUTOS_SEED, ...PRODS]);
+  const trilho = (largura: string) => calcularItem({ tipo: 'CORTINA', entrada: {
+    larguraTrilho: largura, alturaPronta: '2.60', numFolhas: 2, confeccao: 'WAVE', tecido: { sku: 'TEC-001' }, trilhoMotorizado: 'TST-W-0', qtdControles: 0,
+  } }, [], c4).componentes.find((c) => c.sku.startsWith('TST-W-'))!;
+
+  it('usa o produto da próxima faixa que atende a largura', () => {
+    expect([trilho('4.35').sku, trilho('4.35').custoTotal.toFixed(2), trilho('4.35').precoTotal.toFixed(2)]).toEqual(['TST-W-7', '1159.00', '2318.00']);
+    expect(trilho('4.01').sku).toBe('TST-W-7');
+    expect(trilho('4.50').sku).toBe('TST-W-7');
+    expect(trilho('4.00').sku).toBe('TST-W-6');
+    expect(trilho('3.99').sku).toBe('TST-W-6');
+    expect(trilho('0.80').sku).toBe('TST-W-0');
+    expect(trilho('12.00').custoTotal.toFixed(2)).toBe('2143.00');
+  });
+
+  it('acima de 12 m não fabrica', () => {
+    expect(() => trilho('12.01')).toThrow(/não produz/);
+  });
+});
+
 describe('bandô e sanefa vendidos à parte', () => {
   const SAN_AL: Produto = { sku: 'TST-SAN-AL', nome: 'Sanefa Alumínio', unidade: 'ML', custoUnitario: '34.50', precoVendaUnitario: '69.00' };
   const SAN_PVC: Produto = { sku: 'TST-SAN-PVC', nome: 'Sanefa PVC', unidade: 'ML', custoUnitario: '28.75', precoVendaUnitario: '57.50' };
