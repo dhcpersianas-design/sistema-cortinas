@@ -227,7 +227,8 @@ export function EditorProduto({ id }: { id: string | null }) {
             {ultima && modelo.descricao && <p className="text-sm text-muted-foreground sm:col-span-2">{modelo.descricao}</p>}
 
             <Campo rotulo="SKU *" nome="sku" required defaultValue={produto?.sku} className="uppercase" placeholder="TEC-010" />
-            <Campo rotulo="Nome do produto *" nome="nome" required defaultValue={produto?.nome} placeholder={modelo.exemploNome ? `Ex.: ${modelo.exemploNome}` : undefined} />
+            <Campo rotulo="Nome do produto *" nome="nome" required defaultValue={produto?.nome} placeholder={modelo.exemploNome ? `Ex.: ${modelo.exemploNome}` : undefined}
+              dica={perfil === 'TECIDO' ? 'A largura do rolo entra sozinha no fim do nome ao salvar (ex.: " - 3,00 MT").' : undefined} />
             <Campo rotulo={modelo.rotuloCor} nome="corColecao" defaultValue={produto?.corColecao ?? ''} />
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="unidadeMedida">Unidade *</Label>

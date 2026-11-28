@@ -101,7 +101,7 @@ describe('importação de preços', () => {
     const tec = await produto('TEC-001');
     expect([tec.custo_unitario, tec.preco_venda_unitario]).toEqual(['45.5000', '91.0000']);
     const novo = await produto('TEC-050');
-    expect(novo).toMatchObject({ nome: 'Linho Rústico', categoria_id: 1, unidade_medida: 'ML', cor_colecao: 'Cru', custo_unitario: '30.0000', preco_venda_unitario: '79.9000' });
+    expect(novo).toMatchObject({ nome: 'Linho Rústico - 3,00 MT', categoria_id: 1, unidade_medida: 'ML', cor_colecao: 'Cru', custo_unitario: '30.0000', preco_venda_unitario: '79.9000' });
     expect((await produto('TRI-050')).preco_venda_unitario).toBe('40.0000');
     const barras = (await pool.query(`SELECT tamanho_m, custo, venda FROM precos_barra_trilho b JOIN produtos p ON p.id = b.produto_id WHERE p.sku = 'TRI-050' ORDER BY 1`)).rows;
     expect(barras).toHaveLength(6);

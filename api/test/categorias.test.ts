@@ -47,7 +47,7 @@ describe('migração 0011: produtos atuais vão para as novas categorias sem per
       const novos = await p.query(`SELECT sku, nome, custo_unitario, preco_venda_unitario FROM produtos WHERE sku IN ('ARMTEC-0001', 'SLIPER-0001') ORDER BY sku`);
       // venda = custo x (1 + markup da categoria); aqui o markup padrão vigente é 120%.
       expect(novos.rows).toEqual([
-        { sku: 'ARMTEC-0001', nome: 'Voil Sorelle', custo_unitario: '19.9000', preco_venda_unitario: '43.7800' },
+        { sku: 'ARMTEC-0001', nome: 'Voil Sorelle - 3,00 MT', custo_unitario: '19.9000', preco_venda_unitario: '43.7800' },
         { sku: 'SLIPER-0001', nome: 'Vertical Tecido Acquas', custo_unitario: '74.9000', preco_venda_unitario: '164.7800' },
       ]);
       const svk = rows.find((r) => r.sku === 'SVK-002');

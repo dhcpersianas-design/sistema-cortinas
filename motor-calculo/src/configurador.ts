@@ -7,6 +7,7 @@
  *    taxa de pagamento, imposto e comissão -> margem LÍQUIDA e semáforo 45/35.
  *  - descricaoComercial: o texto limpo que vai para o PDF do cliente.
  */
+import { nomeBaseTecido } from './cadastro.js';
 import { alertasDisponibilidade } from './disponibilidade.js';
 import { Decimal, d, dinheiro, ErroEntrada, ZERO, type Numerico } from './decimal.js';
 import { componente, margemPct } from './comum.js';
@@ -180,9 +181,11 @@ export function descricaoComercial(item: EntradaItem, catalogo: Catalogo): strin
   if (item.tipo === 'CORTINA') {
     const e = item.entrada;
     const conf = { WAVE: 'Wave', PREGA: 'Prega macho', FRANZIDO: 'Franzida' }[e.confeccao] ?? e.confeccao;
-    const forro = e.forro ? ` c/ forro ${catalogo.obter(e.forro.sku).nome}` : '';
-    if (e.trilhoMotorizado) return `Cortina ${conf} motorizada em ${catalogo.obter(e.tecido.sku).nome}${forro} (${br(e.larguraTrilho)} m x ${br(e.alturaPronta)} m)`;
-    return `Cortina ${conf} em ${catalogo.obter(e.tecido.sku).nome}${forro} (${br(e.larguraTrilho)} m x ${br(e.alturaPronta)} m)`;
+    // Para o cliente, sem a largura do rolo que fica no fim do nome do tecido (" - 3,00 MT").
+    const forro = e.forro ? ` c/ forro ${nomeBaseTecido(catalogo.obter(e.forro.sku).nome)}` : '';
+    const tecido = nomeBaseTecido(catalogo.obter(e.tecido.sku).nome);
+    if (e.trilhoMotorizado) return `Cortina ${conf} motorizada em ${tecido}${forro} (${br(e.larguraTrilho)} m x ${br(e.alturaPronta)} m)`;
+    return `Cortina ${conf} em ${tecido}${forro} (${br(e.larguraTrilho)} m x ${br(e.alturaPronta)} m)`;
   }
   if (item.tipo === 'SERVICO') {
     const t = item.entrada.descricao?.trim();

@@ -97,6 +97,14 @@ describe('modelos prontos de cortina', () => {
     expect(rows[0].n).toBe(0);
   });
 
+  it('tecido: largura do rolo no fim do nome e muda junto com a largura', async () => {
+    await pool.query(`UPDATE produtos SET nome = 'Linho Teste 3,30 Médio', metadata_tecnica = metadata_tecnica - 'largura_rolo' WHERE sku = 'TEC-001'`);
+    const n = async () => (await pool.query(`SELECT nome, metadata_tecnica->>'largura_rolo' AS l FROM produtos WHERE sku = 'TEC-001'`)).rows[0];
+    expect(await n()).toEqual({ nome: 'Linho Teste Médio - 3,00 MT', l: '3.0' }); // sem largura: 3,00
+    await pool.query(`UPDATE produtos SET metadata_tecnica = metadata_tecnica || '{"largura_rolo": 2.8}' WHERE sku = 'TEC-001'`);
+    expect((await n()).nome).toBe('Linho Teste Médio - 2,80 MT');
+  });
+
   it('exclui o modelo', async () => {
     const id = (await req(ana, 'GET', '/api/catalogo/modelos-cortina')).json().modelos[0].id;
     expect((await req(admin, 'DELETE', `/api/catalogo/modelos-cortina/${id}`)).statusCode).toBe(200);

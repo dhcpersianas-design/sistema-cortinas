@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
 import { sql } from 'drizzle-orm';
-import { d, garantiaDoItem, textoGarantia, SKUS_CORTINA_PADRAO, type GarantiaItem } from '@sistema/motor-calculo';
+import { d, garantiaDoItem, nomeBaseTecido, textoGarantia, SKUS_CORTINA_PADRAO, type GarantiaItem } from '@sistema/motor-calculo';
 import { carregarCatalogoDoBanco } from '../catalogo/catalogo-banco.js';
 import type { Banco } from '../db/conexao.js';
 import { formatarTelefone } from '../cadastros/validacao.js';
@@ -96,8 +96,10 @@ export function descreverItem(i: Pick<ItemCompleto, 'tipo' | 'descricaoComercial
     icone = 'CORTINA';
     const conf = ({ WAVE: 'Wave', PREGA: 'Prega macho', FRANZIDO: 'Franzida' } as Record<string, string>)[e.confeccao ?? ''] ?? '';
     if (automatica) titulo = `Cortina ${conf}`.trim();
-    add('Tecido', nomeSku(e.tecido?.sku));
-    add('Forro', nomeSku(e.forro?.sku ?? undefined));
+    // Sem a largura do rolo do fim do nome (" - 3,00 MT"): é dado interno.
+    const semLargura = (n: string | null | undefined) => (n ? nomeBaseTecido(n) : n);
+    add('Tecido', semLargura(nomeSku(e.tecido?.sku)));
+    add('Forro', semLargura(nomeSku(e.forro?.sku ?? undefined)));
     add('Abertura', e.numFolhas === 2 ? 'Central (2 folhas)' : e.numFolhas === 1 ? 'Lateral (1 folha)' : null);
     if (e.trilhoMotorizado) {
       add('Trilho', nomeSku(e.trilhoMotorizado));

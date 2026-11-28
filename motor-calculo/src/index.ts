@@ -51,7 +51,7 @@ export {
   type CondicoesOrcamento, type ParametrosMargem, type TotaisOrcamento, type ChecagemLiberacao,
 } from './configurador.js';
 export { regrasDoModelo, type RegraModelo, type ModeloEscolhido } from './regras.js';
-export { MODELOS_CADASTRO, ALTERACAO_EM_MASSA, modeloCadastro, metadataDosCampos, type PerfilCadastro, type CampoTecnico, type ModeloCadastro } from './cadastro.js';
+export { MODELOS_CADASTRO, ALTERACAO_EM_MASSA, modeloCadastro, metadataDosCampos, nomeBaseTecido, nomeComLarguraRolo, type PerfilCadastro, type CampoTecnico, type ModeloCadastro } from './cadastro.js';
 export { STATUS_DISPONIBILIDADE, ROTULO_DISPONIBILIDADE, alertasDisponibilidade, textoDisponibilidade, dataBr, type StatusDisponibilidade } from './disponibilidade.js';
 export {
   MODELOS_ACIONAMENTO, adicionaisDoModelo, acionamentosDoModelo, avisosDoModelo, limitesDoModelo, adicionaisAplicados, textoAdicional, bandosDoModelo, rotuloBando, bandoIncluso, adicionalCompativel, adicionaisCompativeis, temGuiaLateral, temBando,

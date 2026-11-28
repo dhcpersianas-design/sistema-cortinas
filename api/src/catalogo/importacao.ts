@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { d, dataBr, MARKUP_PADRAO_PCT, ROTULO_DISPONIBILIDADE, PRODUTOS_SEED, precoVendaSugerido, textoDisponibilidade, type StatusDisponibilidade } from '@sistema/motor-calculo';
+import { d, dataBr, MARKUP_PADRAO_PCT, nomeBaseTecido, ROTULO_DISPONIBILIDADE, PRODUTOS_SEED, precoVendaSugerido, textoDisponibilidade, type StatusDisponibilidade } from '@sistema/motor-calculo';
 import type { Banco } from '../db/conexao.js';
 import { historicoPrecosProduto, precosBarraTrilho, produtos } from '../db/schema.js';
 import { parametro } from './parametros.js';
@@ -353,7 +353,10 @@ export async function analisar(db: Exec, lojaId: string, arquivo: string, lido: 
     for (const k of Object.keys(novo) as (keyof DadosProduto)[]) {
       const a = valorAtual[k];
       const n = novo[k]!;
-      const igual = k === 'custoUnitario' || k === 'precoVendaUnitario' ? d(String(a)).eq(d(String(n))) : a === n;
+      // Tecido: o banco põe a largura do rolo no fim do nome; a planilha sem o " - 3,00 MT" é o mesmo nome.
+      const ehTecido = categorias.find((c) => c.id === (novo.categoriaId ?? atual.categoriaId))?.perfil === 'TECIDO';
+      const igual = k === 'custoUnitario' || k === 'precoVendaUnitario' ? d(String(a)).eq(d(String(n)))
+        : k === 'nome' && ehTecido ? nomeBaseTecido(String(a)) === nomeBaseTecido(String(n)) : a === n;
       if (igual) continue;
       (antes as Record<string, unknown>)[k] = a;
       (depois as Record<string, unknown>)[k] = n;
@@ -474,15 +477,17 @@ export async function aplicar(db: Banco, lojaId: string, usuarioId: string, arqu
 
     for (const op of operacoes) {
       if (op.tipo === 'CRIAR_PRODUTO') {
-        const [p] = await tx.insert(produtos).values({ sku: op.sku, ...op.dados, metadataTecnica: op.metadata }).returning({ id: produtos.id });
+        const [p] = await tx.insert(produtos).values({ sku: op.sku, ...op.dados, metadataTecnica: op.metadata }).returning({ id: produtos.id, nome: produtos.nome });
         idPorSku.set(op.sku, p!.id);
         await tx.insert(historicoPrecosProduto).values({
           produtoId: p!.id, custoNovo: op.dados.custoUnitario, vendaNova: op.dados.precoVendaUnitario, alteradoPor: usuarioId, motivo, importacaoId,
         });
-        await item(p!.id, null, 'CRIOU_PRODUTO', null, op.dados);
+        // Nome como ficou no banco (tecido ganha " - 3,00 MT"), para o desfazer reconhecer.
+        await item(p!.id, null, 'CRIOU_PRODUTO', null, { ...op.dados, nome: p!.nome });
       } else if (op.tipo === 'ATUALIZAR_PRODUTO') {
         const [atual] = await tx.select().from(produtos).where(eq(produtos.id, op.produtoId));
-        await tx.update(produtos).set({ ...op.depois, atualizadoEm: sql`NOW()` }).where(eq(produtos.id, op.produtoId));
+        const [gravado] = await tx.update(produtos).set({ ...op.depois, atualizadoEm: sql`NOW()` }).where(eq(produtos.id, op.produtoId)).returning({ nome: produtos.nome });
+        if (op.depois.nome !== undefined) op.depois.nome = gravado!.nome;
         if (op.depois.custoUnitario !== undefined || op.depois.precoVendaUnitario !== undefined) {
           await tx.insert(historicoPrecosProduto).values({
             produtoId: op.produtoId, custoAnterior: atual!.custoUnitario, custoNovo: op.depois.custoUnitario ?? atual!.custoUnitario,
