@@ -10,47 +10,50 @@
 
 :root {
   color-scheme: light;
-  --background: #faf7f3;
-  --foreground: #2a2320;
+  --background: #f6f7f9;
+  --foreground: #1b2230;
   --card: #ffffff;
-  --card-foreground: #2a2320;
-  --primary: #cf4e39;
+  --card-foreground: #1b2230;
+  --primary: #1f2937;
   --primary-foreground: #ffffff;
-  --muted: #f4eee8;
-  --muted-foreground: #7a6e66;
-  --border: #ece4dc;
-  --input: #e0d6cc;
-  --ring: #ec7a55;
-  --destructive: #c2362b;
-  --accent: #fdeee7;
-  --accent-foreground: #b8432f;
+  --muted: #f0f2f5;
+  --muted-foreground: #657085;
+  --border: #e3e6eb;
+  --input: #d3d8e0;
+  --ring: #e8735a;
+  --destructive: #c8372d;
+  --accent: #edf0f4;
+  --accent-foreground: #1f2937;
   --marca-1: #ec5242;
   --marca-2: #f2925c;
-  --sombra: 0 1px 2px rgb(60 30 20 / 0.04), 0 4px 16px -4px rgb(60 30 20 / 0.08);
-  --sombra-forte: 0 2px 4px rgb(60 30 20 / 0.05), 0 12px 32px -8px rgb(207 78 57 / 0.25);
-  --brilho: rgb(242 146 92 / 0.16);
+  --sombra: 0 1px 2px rgb(16 24 40 / 0.04), 0 4px 14px -6px rgb(16 24 40 / 0.08);
+  --sombra-forte: 0 2px 4px rgb(16 24 40 / 0.05), 0 14px 32px -12px rgb(16 24 40 / 0.22);
+  /* fundo desenhado: lâminas de persiana bem claras */
+  --desenho: rgb(27 34 48 / 0.045);
+  --brilho: rgb(236 82 66 / 0.05);
   --radius: 0.75rem;
 }
 
 .dark {
   color-scheme: dark;
-  --background: #14110f;
-  --foreground: #f3ece6;
-  --card: #1e1a17;
-  --card-foreground: #f3ece6;
-  --primary: #f08a64;
-  --primary-foreground: #1e120d;
-  --muted: #2a2420;
-  --muted-foreground: #a89a90;
-  --border: #342c27;
-  --input: #3f3630;
+  --background: #0a0f1c;
+  --foreground: #e6ebf3;
+  --card: #111827;
+  --card-foreground: #e6ebf3;
+  --primary: #e8edf5;
+  --primary-foreground: #0a0f1c;
+  --muted: #18213a;
+  --muted-foreground: #94a0b8;
+  --border: #1f2a40;
+  --input: #2b3853;
   --ring: #f08a64;
-  --destructive: #ef6a5a;
-  --accent: #3a2419;
-  --accent-foreground: #f6a783;
-  --sombra: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 16px -4px rgb(0 0 0 / 0.4);
-  --sombra-forte: 0 2px 4px rgb(0 0 0 / 0.3), 0 12px 32px -8px rgb(240 138 100 / 0.25);
-  --brilho: rgb(236 82 66 / 0.12);
+  --destructive: #f87171;
+  --accent: #1a2440;
+  --accent-foreground: #e6ebf3;
+  --sombra: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 16px -6px rgb(0 0 0 / 0.5);
+  --sombra-forte: 0 2px 4px rgb(0 0 0 / 0.4), 0 16px 36px -12px rgb(0 0 0 / 0.7);
+  --desenho: rgb(148 163 184 / 0.05);
+  --brilho: rgb(56 89 160 / 0.14);
 }
 
 @theme inline {
@@ -85,11 +88,23 @@ html {
 
 body {
   background-color: var(--background);
-  /* brilho suave da marca no topo da tela */
-  background-image: radial-gradient(60rem 22rem at 50% -8rem, var(--brilho), transparent 70%);
-  background-repeat: no-repeat;
   color: var(--foreground);
   transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Fundo levemente desenhado: linhas finas como lâminas de persiana, que somem para baixo,
+   e um brilho suave no topo. Fica atrás de tudo e não interfere nos cliques. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(70rem 26rem at 85% -10rem, var(--brilho), transparent 70%),
+    repeating-linear-gradient(180deg, var(--desenho) 0 1px, transparent 1px 18px);
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, rgb(0 0 0 / 0.35) 45%, transparent 85%);
+  mask-image: linear-gradient(180deg, #000 0%, rgb(0 0 0 / 0.35) 45%, transparent 85%);
 }
 
 * { border-color: var(--border); }
