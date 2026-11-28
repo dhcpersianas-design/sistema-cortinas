@@ -325,7 +325,7 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
               {itens.map((i) => (
                 <div key={i.id} className="rounded-md border p-3">
                   {form === i.id ? (
-                    <FormItem produtos={produtos} ambientes={ambientes} inicial={i} temControleNoOrcamento={temControleNoOrcamento}
+                    <FormItem produtos={produtos} catalogo={catalogo} ambientes={ambientes} inicial={i} temControleNoOrcamento={temControleNoOrcamento}
                       onSalvar={salvarItem} onCancelar={() => setForm(null)} />
                   ) : (
                     <>
@@ -370,7 +370,7 @@ export function EditorOrcamento({ id, admin, verCusto, recado, onVoltar, onTroca
             </div>
           ))}
           {form === 'novo' ? (
-            <FormItem produtos={produtos} ambientes={ambientes} ambienteSugerido={ambienteNovo} temControleNoOrcamento={temControleNoOrcamento}
+            <FormItem produtos={produtos} catalogo={catalogo} ambientes={ambientes} ambienteSugerido={ambienteNovo} temControleNoOrcamento={temControleNoOrcamento}
               onSalvar={salvarItem} onCancelar={() => setForm(null)} />
           ) : editavel && (
             <Button onClick={() => { setAmbienteNovo(undefined); setForm('novo'); }}>Incluir item (novo ambiente ou vão)</Button>

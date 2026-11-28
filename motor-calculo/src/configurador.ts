@@ -195,7 +195,7 @@ export function descricaoComercial(item: EntradaItem, catalogo: Catalogo): strin
   const e = item.entrada;
   const m = medidaProducao(e.medida);
   const p = catalogo.obter(e.sku);
-  const doCliente = adicionaisAplicados(p, e.adicionais, { larguraPeca: m.largura.div(e.numPecas ?? 1), motorizado: e.acionamento === 'MOTORIZADO' })
+  const doCliente = adicionaisAplicados(p, e.adicionais, { larguraPeca: m.largura.div(e.numPecas ?? 1), motorizado: e.acionamento === 'MOTORIZADO', modelo: e.modeloAcionamento })
     .map((a) => a.descricao).filter((x): x is string => !!x);
   const extras = [...doCliente, e.acionamento === 'MOTORIZADO' ? 'motorizada' : null, e.possuiBando && !bandoIncluso(p) ? `c/ ${rotuloBando(p).toLowerCase()}` : null].filter(Boolean).join(', ');
   return `${p.nome}${extras ? `, ${extras}` : ''} (${br(m.largura)} m x ${br(m.altura)} m)`;

@@ -243,7 +243,7 @@ describe('Cortina: deslizantes, garras e trilho', () => {
     const r = calcularCortina(cortina({ larguraTrilho: '6.00' }), catalogoSeed);
     expect(qtd(r, 'TRI-002')).toBe('6');
     expect(qtd(r, 'FIX-003')).toBeUndefined();
-    expect(codigos(r)).toEqual([]);
+    expect(codigos(r)).toEqual(['INSTALACAO_ACIMA_3M']);
   });
 
   it('decompõe em barras de 6 m + resto arredondado ao metro', () => {
@@ -260,7 +260,7 @@ describe('Cortina: deslizantes, garras e trilho', () => {
     const r = calcularCortina(cortina({ larguraTrilho: '6.10' }), catalogoSeed);
     expect(qtd(r, 'TRI-002')).toBe('7');
     expect(qtd(r, 'FIX-003')).toBeUndefined();
-    expect(codigos(r)).toEqual(['TRILHO_ACIMA_BARRA_MAX']);
+    expect(codigos(r)).toEqual(['TRILHO_ACIMA_BARRA_MAX', 'INSTALACAO_ACIMA_3M']);
     expect(r.alertas[0]!.mensagem).toContain('1 barra(s) de 6 m + 1 barra(s) de 1 m');
     expect((r.especificacaoTecnica.trilho as { barras: unknown }).barras).toEqual([
       { tamanhoM: '6.00', quantidade: 1 },

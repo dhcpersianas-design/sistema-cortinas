@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calcularItem, calcularPersiana, criarCatalogo, descricaoComercial, PRODUTOS_SEED, regrasDoModelo, type Produto } from '../src/index.js';
+import { adicionaisCompativeis, bandosDoModelo, calcularItem, calcularPersiana, criarCatalogo, descricaoComercial, PRODUTOS_SEED, regrasDoModelo, type Produto } from '../src/index.js';
 
 const MAGIC: Produto = {
   sku: 'TST-MAGIC', nome: 'Cortina Magic Translúcida', unidade: 'M2', custoUnitario: '242.00', precoVendaUnitario: '484.00',
@@ -169,5 +169,32 @@ describe('bandô e sanefa vendidos à parte', () => {
     const r = calcularPersiana({ ...base, sku: 'TST-BOX', medida: { tipo: 'PRODUCAO', largura: '1.20', altura: '1.50' }, acionamento: 'MANUAL', possuiBando: true }, c3);
     expect(r.componentes.map((c) => c.sku).filter((s) => !s.startsWith('SRV'))).toEqual(['TST-BOX']);
     expect(r.alertas.map((a) => a.codigo)).toContain('BANDO_INCLUSO');
+  });
+});
+
+describe('opcionais compatíveis com o acionamento e o modelo', () => {
+  const ROLO: Produto = { sku: 'TST-ROLO', nome: 'Rolo Tohu', unidade: 'M2', custoUnitario: '142.31', precoVendaUnitario: '284.62',
+    metadata: { acionamentos: ['D', 'E', 'SPT'], bandos: ['TST-BD-AL', 'TST-BD-MAG'],
+      adicionais: [
+        { codigo: 'COMANDO_ALIVIO', rotulo: 'Comando de alívio', tipo: 'CUSTO_PECA', valor: 70.62, apenas_manual: true, sugerir_area_acima: 6 },
+        { codigo: 'SUPORTE_INTERMEDIARIO', rotulo: 'Suporte intermediário', tipo: 'CUSTO_PECA', valor: 26.75, apenas_modelos: ['SPT'] },
+      ] } };
+  const BD_AL: Produto = { sku: 'TST-BD-AL', nome: 'Bandô alumínio', unidade: 'ML', custoUnitario: '58.85', precoVendaUnitario: '117.70' };
+  const BD_MAG: Produto = { sku: 'TST-BD-MAG', nome: 'Bandô Magnus', unidade: 'ML', custoUnitario: '214', precoVendaUnitario: '428', metadata: { somente_motorizado: true } };
+  const c4 = criarCatalogo([...PRODUTOS_SEED, ROLO, BD_AL, BD_MAG]);
+  const rolo = (extra: Record<string, unknown>) => calcularPersiana({ ...base, sku: 'TST-ROLO', medida: { tipo: 'PRODUCAO', largura: '1.50', altura: '1.50' }, acionamento: 'MANUAL', ...extra }, c4);
+
+  it('lista só os opcionais que encaixam', () => {
+    expect(adicionaisCompativeis(ROLO, { motorizado: false }).map((a) => a.codigo)).toEqual(['COMANDO_ALIVIO']);
+    expect(adicionaisCompativeis(ROLO, { motorizado: true, modelo: 'SPT' }).map((a) => a.codigo)).toEqual(['SUPORTE_INTERMEDIARIO']);
+    expect(bandosDoModelo(ROLO, { motorizado: false, obter: (s) => c4.obter(s) })).toEqual(['TST-BD-AL']);
+    expect(bandosDoModelo(ROLO, { motorizado: true, obter: (s) => c4.obter(s) })).toEqual(['TST-BD-AL', 'TST-BD-MAG']);
+  });
+
+  it('recusa opcional ou bandô que não encaixa; 1,50 x 1,50 manual não tem alerta', () => {
+    expect(() => rolo({ acionamento: 'MOTORIZADO', adicionais: ['COMANDO_ALIVIO'] })).toThrow(/só no acionamento manual/);
+    expect(() => rolo({ adicionais: ['SUPORTE_INTERMEDIARIO'], modeloAcionamento: 'D' })).toThrow(/só no modelo SPT/);
+    expect(() => rolo({ possuiBando: true, skuBando: 'TST-BD-MAG' })).toThrow(/só para persiana motorizada/);
+    expect(rolo({}).alertas).toEqual([]);
   });
 });

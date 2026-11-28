@@ -38,6 +38,25 @@ export interface AdicionalModelo {
   sugerir_area_acima?: number;
   /** Texto que vai na descrição do item para o cliente (ex.: "cascata"). Sem ele, fica só interno. */
   descricao?: string;
+  /** Só serve no acionamento manual (ex.: comando de alívio, monocomando). */
+  apenas_manual?: boolean;
+  /** Só serve no motorizado. */
+  apenas_motorizado?: boolean;
+  /** Só serve nestes modelos de acionamento (ex.: suporte intermediário só no SPT). */
+  apenas_modelos?: string[];
+}
+
+/** O opcional encaixa no acionamento e no modelo escolhidos? */
+export function adicionalCompativel(a: AdicionalModelo, ctx: { motorizado: boolean; modelo?: string }): boolean {
+  if (a.apenas_manual && ctx.motorizado) return false;
+  if (a.apenas_motorizado && !ctx.motorizado) return false;
+  if (a.apenas_modelos?.length && !(ctx.modelo && a.apenas_modelos.includes(ctx.modelo))) return false;
+  return true;
+}
+
+/** Opcionais que o vendedor pode marcar agora (compatíveis e não automáticos). */
+export function adicionaisCompativeis(p: Pick<Produto, 'metadata'> | undefined, ctx: { motorizado: boolean; modelo?: string }): AdicionalModelo[] {
+  return p ? adicionaisDoModelo(p as Produto).filter((a) => !a.automatico && adicionalCompativel(a, ctx)) : [];
 }
 
 export interface LimitesModelo {
@@ -108,12 +127,17 @@ export function limitesDoModelo(p: Pick<Produto, 'metadata'>, motorizado: boolea
 export function adicionaisAplicados(
   p: Produto,
   escolhidos: string[] | undefined,
-  ctx: { larguraPeca: Decimal; motorizado: boolean },
+  ctx: { larguraPeca: Decimal; motorizado: boolean; modelo?: string },
 ): AdicionalModelo[] {
   const todos = adicionaisDoModelo(p);
   const marcados = new Set(escolhidos ?? []);
   for (const c of marcados) {
-    if (!todos.some((a) => a.codigo === c)) throw new ErroEntrada(`Opcional "${c}" não existe para ${p.nome}.`);
+    const a = todos.find((x) => x.codigo === c);
+    if (!a) throw new ErroEntrada(`Opcional "${c}" não existe para ${p.nome}.`);
+    if (!adicionalCompativel(a, ctx)) {
+      const onde = a.apenas_manual ? 'só no acionamento manual' : a.apenas_motorizado ? 'só na motorizada' : `só no modelo ${a.apenas_modelos?.join(' ou ')}`;
+      throw new ErroEntrada(`O opcional "${a.rotulo}" serve ${onde}.`);
+    }
   }
   return todos.filter((a) => {
     if (marcados.has(a.codigo)) return true;
@@ -174,10 +198,31 @@ export function somarAdicionais(
   };
 }
 
-/** Bandô/sanefa vendido à parte: SKUs que o vendedor pode escolher (o 1º é o padrão). */
-export function bandosDoModelo(p: Pick<Produto, 'metadata'> | undefined): string[] {
+/**
+ * Bandô/sanefa vendido à parte: SKUs que o vendedor pode escolher (o 1º é o padrão).
+ * Com `obter`, tira os que não servem no acionamento (peça com metadata somente_motorizado).
+ */
+export function bandosDoModelo(
+  p: Pick<Produto, 'metadata'> | undefined,
+  filtro?: { motorizado: boolean; obter: (sku: string) => Pick<Produto, 'metadata'> | undefined },
+): string[] {
   const b = p?.metadata?.['bandos'];
-  return Array.isArray(b) ? b.filter((x): x is string => typeof x === 'string' && x.length > 0) : [];
+  const lista = Array.isArray(b) ? b.filter((x): x is string => typeof x === 'string' && x.length > 0) : [];
+  if (!filtro) return lista;
+  return lista.filter((sku) => filtro.motorizado || filtro.obter(sku)?.metadata?.['somente_motorizado'] !== true);
+}
+
+/** A linha tem guia lateral própria (metadata.skus.guiaLateral)? Sem ela, a guia não aparece para escolher. */
+export function temGuiaLateral(p: Pick<Produto, 'metadata'> | undefined): boolean {
+  const s = p?.metadata?.['skus'] as Record<string, unknown> | undefined;
+  return typeof s?.['guiaLateral'] === 'string' && s['guiaLateral'] !== '';
+}
+
+/** A linha tem bandô/sanefa para vender (lista bandos ou metadata.skus.bando)? */
+export function temBando(p: Pick<Produto, 'metadata'> | undefined): boolean {
+  if (bandoIncluso(p)) return false;
+  const s = p?.metadata?.['skus'] as Record<string, unknown> | undefined;
+  return bandosDoModelo(p).length > 0 || (typeof s?.['bando'] === 'string' && s['bando'] !== '');
 }
 
 /** "Sanefa" na vertical; "Bandô" nas demais. */

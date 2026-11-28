@@ -373,6 +373,10 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
   const pInst = obterAuxiliar(catalogo, acima3 ? skus.instalacaoAcima3m : skus.instalacao, alertas,
     acima3 ? 'A instalação de cortina acima de 3 m' : 'A instalação de cortina');
   if (pInst) comps.push(componente(pInst, new Decimal(1), `1 UN por cortina (trilho ${f2(L)}m ${acima3 ? '> 3,00m' : '<= 3,00m'})`));
+  if (acima3) {
+    alertas.push({ codigo: 'INSTALACAO_ACIMA_3M', severidade: 'INFO',
+      mensagem: `Trilho de ${f2(L)}m (acima de 3,00m): entra a instalação de cortina acima de 3 m (valor maior).` });
+  }
   if (peDireitoAlto) {
     const pPD = obterAuxiliar(catalogo, skus.adicionalPeDireitoAlto, alertas, 'O adicional de andaime/escada');
     if (pPD) comps.push(componente(pPD, new Decimal(1), `Adicional andaime/escada: H_pronta ${f2(H)}m > ${f2(limitePD)}m`));
