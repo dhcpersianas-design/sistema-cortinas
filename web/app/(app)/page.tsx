@@ -86,7 +86,7 @@ function CardModulo({ m }: { m: Modulo }) {
   const Icone = m.icone;
   const conteudo = (
     <>
-      <span className="flex size-11 shrink-0 items-center sm:size-12 justify-center rounded-xl bg-accent text-accent-foreground transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+      <span className="flex size-11 shrink-0 items-center sm:size-12 justify-center rounded-xl bg-accent text-[color:var(--marca-1)] transition-colors group-hover:bg-primary group-hover:text-primary-foreground dark:text-[color:var(--marca-2)]">
         <Icone className="size-6" aria-hidden />
       </span>
       <span className="min-w-0 flex-1">

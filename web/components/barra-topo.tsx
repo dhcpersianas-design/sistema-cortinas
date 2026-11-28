@@ -26,7 +26,7 @@ export function BarraTopo({ nome, perfil }: Props) {
 
   const botao = 'inline-flex h-10 items-center gap-1.5 rounded-full px-3 text-sm font-medium transition-colors hover:bg-muted active:scale-95';
   return (
-    <header className="sticky top-0 z-30 border-b bg-background/80 pt-[env(safe-area-inset-top)] backdrop-blur-xl supports-[backdrop-filter]:bg-background/70">
+    <header className="sticky top-0 z-30 border-b bg-card/75 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-6xl items-center gap-1 px-3 sm:gap-2 sm:px-6">
         <button type="button" onClick={voltar} className={botao} aria-label="Voltar para a tela anterior">
           <ArrowLeft className="size-5" aria-hidden />
@@ -45,7 +45,6 @@ export function BarraTopo({ nome, perfil }: Props) {
         </Link>
         <MenuUsuario nome={nome} perfil={perfil} />
       </div>
-      <div className="faixa-marca h-0.5 opacity-70" aria-hidden />
     </header>
   );
 }
