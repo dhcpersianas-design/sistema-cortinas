@@ -47,7 +47,7 @@ describe('migração 0011: produtos atuais vão para as novas categorias sem per
       const novos = await p.query(`SELECT sku, nome, custo_unitario, preco_venda_unitario FROM produtos WHERE sku IN ('ARMTEC-0001', 'SLIPER-0001') ORDER BY sku`);
       // venda = custo x (1 + markup da categoria); aqui o markup padrão vigente é 120%.
       expect(novos.rows).toEqual([
-        { sku: 'ARMTEC-0001', nome: 'Voil Sorelle', custo_unitario: '19.9000', preco_venda_unitario: '43.7800' },
+        { sku: 'ARMTEC-0001', nome: 'Voil Sorelle - 3,00 MT', custo_unitario: '19.9000', preco_venda_unitario: '43.7800' },
         { sku: 'SLIPER-0001', nome: 'Vertical Tecido Acquas', custo_unitario: '74.9000', preco_venda_unitario: '164.7800' },
       ]);
       const svk = rows.find((r) => r.sku === 'SVK-002');
@@ -241,7 +241,8 @@ describe('categorias e markup por categoria', () => {
 describe('campos do cadastro por tipo', () => {
   it('lê os campos do formulário para a metadata sem perder o que já existia', () => {
     const r = metadataDosCampos('TECIDO', { largura_rolo: '2,80', eh_forro: true, permite_corte_horizontal: false }, { outra: 'x', garantia_meses: 12 });
-    expect(r).toEqual({ metadata: { outra: 'x', largura_rolo: 2.8, eh_forro: true, permite_corte_horizontal: false }, erros: [] });
+    // Tecido não tem mais campo de garantia (cortina não tem garantia): o dado antigo fica guardado, sem uso.
+    expect(r).toEqual({ metadata: { outra: 'x', garantia_meses: 12, largura_rolo: 2.8, eh_forro: true, permite_corte_horizontal: false }, erros: [] });
     expect(metadataDosCampos('TECIDO', {}).erros).toEqual(['Preencha: Largura do rolo.']);
     expect(metadataDosCampos('TRILHO', { vias: '2', tipo: '' }, { tipo: 'VARAO' }).metadata).toEqual({ vias: 2 });
     expect(metadataDosCampos('MOTORIZACAO', { canais: '1,5' }).erros).toEqual(['Canais (só controle remoto): use número inteiro.']);

@@ -123,6 +123,39 @@ export async function carregarCatalogo(): Promise<{ produtos: ProdutoCatalogo[];
   return catalogoCache;
 }
 
+// ------------------------------------------------------------------ modelos prontos de cortina
+
+export type AcessorioModeloCortina = { sku: string; aplica: 'PRIMARIO' | 'SECUNDARIO' | 'CORTINA'; regra: string; quantidade?: string };
+export type ModeloCortina = {
+  id: string; nome: string; confeccao: 'WAVE' | 'PREGA' | 'FRANZIDO';
+  tecidoSku: string; tecidoFator: string | null; secundarioSku: string | null; secundarioFator: string | null;
+  trilhoSku: string; acessorios: AcessorioModeloCortina[];
+  maoObraSku: string | null; instalacaoSku: string | null; instalacaoAcima3Sku: string | null; ativo: boolean;
+};
+
+/** Modelos prontos (Gabriel, 28/11/2026). Com internet vêm da API; sem, da cópia no aparelho. */
+export async function carregarModelosCortina(): Promise<ModeloCortina[]> {
+  try {
+    const m = (await chamar<{ modelos: ModeloCortina[] }>('/api/catalogo/modelos-cortina')).modelos;
+    await gravar('meta', m, 'modelosCortina');
+    return m;
+  } catch (e) {
+    if (!semRede(e) && (e as ErroApi).status !== 503 && (e as ErroApi).status !== 404) throw e;
+    return (await ler<ModeloCortina[]>('meta', 'modelosCortina')) ?? [];
+  }
+}
+
+/** Cópia do modelo que vai dentro do item (o cálculo usa ela, mesmo se o modelo mudar depois). */
+export function modeloParaItem(m: ModeloCortina) {
+  return {
+    id: m.id, nome: m.nome,
+    acessorios: m.acessorios.map((a) => ({ sku: a.sku, aplica: a.aplica, regra: a.regra, ...(a.quantidade ? { quantidade: String(a.quantidade) } : {}) })),
+    ...(m.maoObraSku ? { maoObra: m.maoObraSku } : {}),
+    ...(m.instalacaoSku ? { instalacao: m.instalacaoSku } : {}),
+    ...(m.instalacaoAcima3Sku ? { instalacaoAcima3m: m.instalacaoAcima3Sku } : {}),
+  };
+}
+
 /** Recalcula no aparelho (provisório). Lança erro do motor se a entrada é inválida. */
 export function calcularLocal(o: Orcamento, catalogo: Catalogo, verCusto: boolean): Orcamento {
   const itens = o.itens.map((i) => {

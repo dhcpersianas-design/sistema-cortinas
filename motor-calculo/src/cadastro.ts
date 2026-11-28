@@ -21,6 +21,8 @@ export interface CampoTecnico {
   /** Unidade mostrada ao lado do campo (m, m², meses...). */
   sufixo?: string;
   dica?: string;
+  /** `simnao`: vem marcado quando o produto ainda não tem o dado (ex.: produto novo). */
+  padrao?: boolean;
 }
 
 export interface ModeloCadastro {
@@ -63,8 +65,8 @@ export const MODELOS_CADASTRO: Record<PerfilCadastro, ModeloCadastro> = {
     campos: [
       { chave: 'largura_rolo', rotulo: 'Largura do rolo', tipo: 'numero', sufixo: 'm', obrigatorio: true, dica: 'Ex.: 2,80 ou 3,00. Usada no cálculo do corte.' },
       { chave: 'eh_forro', rotulo: 'É forro / blackout (aparece na lista de forros)?', tipo: 'simnao' },
-      { chave: 'permite_corte_horizontal', rotulo: 'Pode virar o tecido (corte na horizontal)?', tipo: 'simnao', dica: 'Sim = sem emendas quando a altura cabe na largura do rolo.' },
-      garantia('12 meses'),
+      { chave: 'permite_corte_horizontal', rotulo: 'Pode virar o tecido (corte na horizontal)?', tipo: 'simnao', padrao: true, dica: 'Sim = sem emendas quando a altura cabe na largura do rolo.' },
+      // Sem garantia: cortina não tem garantia, só persiana (Gabriel, 28/11/2026).
     ],
   },
   ACESSORIO_PERSIANA: {
@@ -179,3 +181,21 @@ export function metadataDosCampos(
  * mudando de uma vez (markup, importação de preços...) exige digitar `palavra` e clicar em Continuar.
  */
 export const ALTERACAO_EM_MASSA = { limite: 10, palavra: 'ALTERAR' } as const;
+
+/**
+ * Nome do tecido sempre termina com a largura do rolo (Gabriel, 28/11/2026): "Linho Sintético - 3,00 MT".
+ * Tira o sufixo antigo e a medida escrita no meio do nome ("3,30", "2,80L", "3 m") para não duplicar.
+ * O banco aplica a mesma regra num gatilho (migração 0018); mantenha os dois iguais.
+ */
+export function nomeBaseTecido(nome: string): string {
+  return nome
+    .replace(/\s*-\s*\d+(,\d+)?\s*MT\s*$/i, '')
+    .replace(/\s+\d,\d{1,2}\s*(mt|m|l)?(?=\s|$)/gi, '')
+    .replace(/\s+[1-4]\s*(mt|m|l)(?=\s|$)/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+export function nomeComLarguraRolo(nome: string, larguraM: number): string {
+  const sufixo = ` - ${larguraM.toFixed(2).replace('.', ',')} MT`;
+  return nomeBaseTecido(nome).slice(0, 160 - sufixo.length) + sufixo;
+}

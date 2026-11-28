@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Campo, classeSelect, classeTextarea, Mensagens } from '@/components/cadastro/campos';
 import { api } from '@/lib/cliente';
+import { avisar } from '@/components/aviso-flutuante';
 import { dinheiro } from '@/lib/utils';
 import { formatarData } from '@/lib/texto';
 import { metadataDosCampos, modeloCadastro, ROTULO_DISPONIBILIDADE, STATUS_DISPONIBILIDADE, type CampoTecnico } from '@sistema/motor-calculo/navegador';
@@ -43,7 +44,7 @@ function dividir(meta: Record<string, unknown>, perfil: string): { valores: Valo
   for (const c of m.campos) {
     const v = meta[c.chave];
     delete resto[c.chave];
-    if (c.tipo === 'simnao') valores[c.chave] = v === true || v === 'true';
+    if (c.tipo === 'simnao') valores[c.chave] = v == null ? Boolean(c.padrao) : v === true || v === 'true';
     else valores[c.chave] = v == null ? '' : c.tipo === 'opcoes' ? String(v) : String(v).replace('.', ',');
   }
   return { valores, extras: Object.keys(resto).length ? JSON.stringify(resto, null, 2) : '' };
@@ -148,13 +149,16 @@ export function EditorProduto({ id }: { id: string | null }) {
       disponibilidade, previsaoDisponivel: disponibilidade === 'EM_FALTA_COM_PREVISAO' ? previsao || null : null,
     };
     try {
+      // Salvou: volta para a lista com o balão verde (Gabriel, 28/11/2026).
       if (id) {
         const r = await api<{ historicoRegistrado: boolean }>(`/api/catalogo/produtos/${id}`, { method: 'PATCH', corpo });
-        setOk(r.historicoRegistrado ? 'Salvo. Mudança de preço registrada no histórico.' : 'Salvo.');
-        setVersao((v) => v + 1);
+        avisar(r.historicoRegistrado ? 'Produto atualizado. Mudança de preço registrada no histórico.' : 'Produto atualizado.');
+        router.push('/catalogo');
       } else {
         const r = await api<{ id: string }>('/api/catalogo/produtos', { method: 'POST', corpo });
-        router.replace(`/catalogo/${r.id}`);
+        // Trilho novo fica na tela: a tabela de preço por barra só aparece depois de salvo.
+        if (final.trilho) { avisar('Produto salvo. Agora preencha o preço por tamanho de barra.'); router.replace(`/catalogo/${r.id}`); }
+        else { avisar('Produto salvo.'); router.push('/catalogo'); }
       }
     } catch (err) { setErro((err as Error).message); }
   }
@@ -223,7 +227,8 @@ export function EditorProduto({ id }: { id: string | null }) {
             {ultima && modelo.descricao && <p className="text-sm text-muted-foreground sm:col-span-2">{modelo.descricao}</p>}
 
             <Campo rotulo="SKU *" nome="sku" required defaultValue={produto?.sku} className="uppercase" placeholder="TEC-010" />
-            <Campo rotulo="Nome do produto *" nome="nome" required defaultValue={produto?.nome} placeholder={modelo.exemploNome ? `Ex.: ${modelo.exemploNome}` : undefined} />
+            <Campo rotulo="Nome do produto *" nome="nome" required defaultValue={produto?.nome} placeholder={modelo.exemploNome ? `Ex.: ${modelo.exemploNome}` : undefined}
+              dica={perfil === 'TECIDO' ? 'A largura do rolo entra sozinha no fim do nome ao salvar (ex.: " - 3,00 MT").' : undefined} />
             <Campo rotulo={modelo.rotuloCor} nome="corColecao" defaultValue={produto?.corColecao ?? ''} />
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="unidadeMedida">Unidade *</Label>

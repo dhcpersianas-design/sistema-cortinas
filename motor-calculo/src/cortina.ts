@@ -60,6 +60,68 @@ export const SKUS_CORTINA_PADRAO: SkusCortina = {
   adicionalPeDireitoAlto: 'SRV-006',
 };
 
+/**
+ * Modelo pronto de cortina (Gabriel, 28/11/2026): o administrador escolhe os acessórios de cada
+ * tecido e da cortina; o vendedor puxa o modelo no orçamento e o cálculo usa ESTES produtos
+ * (não os códigos fixos DES-001, FIX-001...). O item guarda uma cópia do modelo.
+ */
+export type AplicaAcessorio = 'PRIMARIO' | 'SECUNDARIO' | 'CORTINA';
+/**
+ * Como calcula a quantidade:
+ * - DESLIZANTE: tecido wave = largura do trilho em cm / 4; franzido (e o secundário) = cm / 8; sobe ao número PAR.
+ * - ENTRETELA: só cortina wave e só no tecido primário = metros do tecido (largura x fator).
+ * - TERMINAL: 6 por cortina (por janela, não por tecido).
+ * - GARRA: 1 em cada ponta + 1 a cada 40 cm = CEIL(largura / 0,40) + 1 (simples, dupla ou tripla).
+ * - ML_TECIDO: metros do tecido a que o acessório pertence. ML_TRILHO: metros do trilho. FIXA: quantidade fixa.
+ */
+export type RegraAcessorio = 'DESLIZANTE' | 'ENTRETELA' | 'TERMINAL' | 'GARRA' | 'ML_TECIDO' | 'ML_TRILHO' | 'FIXA';
+export const REGRAS_ACESSORIO: Record<RegraAcessorio, string> = {
+  DESLIZANTE: 'Deslizante (wave cm/4, franzido cm/8, par)',
+  ENTRETELA: 'Entretela (= metros do tecido)',
+  TERMINAL: 'Terminal (6 por cortina)',
+  GARRA: 'Garra (pontas + 1 a cada 40 cm)',
+  ML_TECIDO: 'Metros do tecido',
+  ML_TRILHO: 'Metros do trilho',
+  FIXA: 'Quantidade fixa por cortina',
+};
+export interface AcessorioModelo {
+  sku: string;
+  aplica: AplicaAcessorio;
+  regra: RegraAcessorio;
+  /** Só na regra FIXA (padrão 1). */
+  quantidade?: Numerico;
+}
+export interface ModeloCortinaItem {
+  id?: string;
+  nome: string;
+  acessorios: AcessorioModelo[];
+  /** Mão de obra da confecção da cortina inteira (todos os tecidos) = valor x largura do trilho. */
+  maoObra?: string;
+  /** Instalação até 3 m e acima de 3 m (em branco: SRV-001 / SRV-004). */
+  instalacao?: string;
+  instalacaoAcima3m?: string;
+}
+
+/** Arredonda para cima ao número par (62,5 -> 64; 31,25 -> 32). */
+export function parAcima(x: Decimal): Decimal {
+  const c = x.ceil();
+  return c.mod(2).isZero() ? c : c.plus(1);
+}
+
+/** Deslizantes da regra do Gabriel: wave = cm / 4, franzido/prega = cm / 8, sempre par. */
+export function deslizantesModelo(larguraTrilho: Decimal, wave: boolean) {
+  const cm = larguraTrilho.mul(100);
+  const div = wave ? 4 : 8;
+  const q = parAcima(cm.div(div));
+  return { quantidade: q, log: `${wave ? 'Wave' : 'Franzido'}: ${cm.toFixed(0)} cm / ${div} = ${cm.div(div).toDecimalPlaces(2).toString()} -> par acima = ${q.toString()} UN` };
+}
+
+/** Garras: 1 em cada ponta + 1 a cada 40 cm (2,50 m -> 8; 1,60 m -> 5). */
+export function garrasModelo(larguraTrilho: Decimal) {
+  const q = larguraTrilho.div('0.40').ceil().plus(1);
+  return { quantidade: q, log: `CEIL(${f2(larguraTrilho)} / 0,40) + 1 = ${q.toString()} UN (pontas + 1 a cada 40 cm)` };
+}
+
 export interface EntradaCortina {
   /** Largura final do trilho/varão instalado (m). */
   larguraTrilho: Numerico;
@@ -90,6 +152,8 @@ export interface EntradaCortina {
   trilhoMotorizado?: string;
   /** Controles remotos neste item (só cortina motorizada; não vêm com o trilho). Padrão 1. */
   qtdControles?: number;
+  /** Modelo pronto: acessórios e mão de obra vêm daqui, no lugar dos códigos fixos. */
+  modelo?: ModeloCortinaItem;
 }
 
 /** Faixa de preço do trilho motorizado: vale a primeira com `ate` >= largura. */
@@ -299,8 +363,17 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
     const txtMult = peDireitoAlto ? ` x adicional pé-direito alto ${mult.toString()}` : '';
     comps.push(componente(p, qtd, `MDO ${rotulo} base ${base} = ${f2(qtd)} ML${txtMult}`, mult));
   };
-  mdo(skus.maoObraTecido, tec.quantidade, 'tecido');
-  if (forro) mdo(skus.maoObraForro, forro.quantidade, 'forro');
+  const modelo = e.modelo;
+  if (modelo) {
+    // Modelo: um serviço para a cortina inteira (todos os tecidos) = valor x largura do trilho.
+    if (modelo.maoObra) {
+      const p = obterAuxiliar(catalogo, modelo.maoObra, alertas, 'A confecção (mão de obra)');
+      if (p) comps.push(componente(p, L, `Confecção da cortina inteira: largura do trilho ${f2(L)} m x valor do serviço`));
+    }
+  } else {
+    mdo(skus.maoObraTecido, tec.quantidade, 'tecido');
+    if (forro) mdo(skus.maoObraForro, forro.quantidade, 'forro');
+  }
   if (peDireitoAlto) {
     alertas.push({
       codigo: 'PE_DIREITO_ALTO',
@@ -336,11 +409,11 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
     pMotor = preco.produto;
     comps.push(componente({ ...preco.produto, custoUnitario: preco.custo, precoVendaUnitario: preco.venda }, new Decimal(1),
       `Trilho motorizado: largura ${f2(L)} m -> faixa até ${f2(d(preco.faixa.ate))} m`));
-    const modelo = metaStr(pMotor, 'modelo');
+    const modeloMotor = metaStr(pMotor, 'modelo');
     const precisa = e.confeccao === 'WAVE' ? 'WAVE' : 'FRANZIDA';
-    if (modelo && modelo !== precisa) {
+    if (modeloMotor && modeloMotor !== precisa) {
       alertas.push({ codigo: 'TRILHO_MOTORIZADO_MODELO', severidade: 'CRITICO',
-        mensagem: `Cortina ${e.confeccao === 'WAVE' ? 'Wave' : 'franzida/prega'} pede o trilho motorizado modelo ${precisa === 'WAVE' ? 'Wave (botão)' : 'Standard (franzida)'}; o escolhido é ${modelo === 'WAVE' ? 'Wave' : 'Standard'}.` });
+        mensagem: `Cortina ${e.confeccao === 'WAVE' ? 'Wave' : 'franzida/prega'} pede o trilho motorizado modelo ${precisa === 'WAVE' ? 'Wave (botão)' : 'Standard (franzida)'}; o escolhido é ${modeloMotor === 'WAVE' ? 'Wave' : 'Standard'}.` });
     }
     const qc = e.qtdControles ?? 1;
     if (qc > 0) {
@@ -349,59 +422,64 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
     }
   }
 
-  // ---------- Passo B3/B4: deslizantes ----------
-  if (e.confeccao === 'WAVE' && !pMotor) {
-    if (ehVarao) {
-      alertas.push({
-        codigo: 'WAVE_EM_VARAO',
-        severidade: 'CRITICO',
-        mensagem: 'Cortina Wave exige trilho com deslizantes e cordão espaçador; não é compatível com varão.',
-      });
+  if (modelo) {
+    acessoriosModelo(modelo, { L, passo, fTecido, tec, forro, confeccao: e.confeccao, motorizado: Boolean(pMotor), catalogo, alertas, comps });
+  } else {
+    // ---------- Passo B3/B4: deslizantes ----------
+    if (e.confeccao === 'WAVE' && !pMotor) {
+      if (ehVarao) {
+        alertas.push({
+          codigo: 'WAVE_EM_VARAO',
+          severidade: 'CRITICO',
+          mensagem: 'Cortina Wave exige trilho com deslizantes e cordão espaçador; não é compatível com varão.',
+        });
+      }
+      const pW = obterAuxiliar(catalogo, skus.deslizanteWave, alertas, 'O deslizante wave');
+      if (pW) {
+        const w = calcularDeslizantesWave(L, N, metaNum(pW, 'un_por_metro', 15));
+        comps.push(componente(pW, w.quantidade, w.log));
+      }
     }
-    const pW = obterAuxiliar(catalogo, skus.deslizanteWave, alertas, 'O deslizante wave');
-    if (pW) {
-      const w = calcularDeslizantesWave(L, N, metaNum(pW, 'un_por_metro', 15));
-      comps.push(componente(pW, w.quantidade, w.log));
+    const camadasComum = (e.confeccao !== 'WAVE' ? 1 : 0) + (forro ? 1 : 0);
+    const pComum = camadasComum > 0 && !ehVarao && !pMotor ? obterAuxiliar(catalogo, skus.deslizanteComum, alertas, 'O deslizante comum') : undefined;
+    if (pComum) {
+      const upmComum = metaNum(pComum, 'un_por_metro', 10);
+      const porCamada = L.mul(upmComum).ceil();
+      const total = porCamada.mul(camadasComum);
+      comps.push(componente(pComum, total, `CEIL(${f2(L)} * ${upmComum.toString()} un/m) * ${camadasComum} camada(s) = ${total.toString()} UN`));
     }
-  }
-  const camadasComum = (e.confeccao !== 'WAVE' ? 1 : 0) + (forro ? 1 : 0);
-  const pComum = camadasComum > 0 && !ehVarao && !pMotor ? obterAuxiliar(catalogo, skus.deslizanteComum, alertas, 'O deslizante comum') : undefined;
-  if (pComum) {
-    const upmComum = metaNum(pComum, 'un_por_metro', 10);
-    const porCamada = L.mul(upmComum).ceil();
-    const total = porCamada.mul(camadasComum);
-    comps.push(componente(pComum, total, `CEIL(${f2(L)} * ${upmComum.toString()} un/m) * ${camadasComum} camada(s) = ${total.toString()} UN`));
-  }
 
-  // ---------- Passo B5: fita entretela wave ----------
-  if (e.confeccao === 'WAVE') {
-    const pFita = obterAuxiliar(catalogo, skus.fitaWave, alertas, 'A fita entretela wave');
-    const qFita = tec.modoCorte === 'HORIZONTAL' ? tec.quantidade : ceilStep(L.mul(fTecido), passo);
-    const log = tec.modoCorte === 'HORIZONTAL'
-      ? `= ML tecido principal (corte horizontal) = ${f2(qFita)} ML`
-      : `CEIL((${f2(L)} * ${fTecido.toString()}) / ${passo.toString()}) * ${passo.toString()} = ${f2(qFita)} ML`;
-    if (pFita) comps.push(componente(pFita, qFita, log));
-  }
+    // ---------- Passo B5: fita entretela wave ----------
+    if (e.confeccao === 'WAVE') {
+      const pFita = obterAuxiliar(catalogo, skus.fitaWave, alertas, 'A fita entretela wave');
+      const qFita = tec.modoCorte === 'HORIZONTAL' ? tec.quantidade : ceilStep(L.mul(fTecido), passo);
+      const log = tec.modoCorte === 'HORIZONTAL'
+        ? `= ML tecido principal (corte horizontal) = ${f2(qFita)} ML`
+        : `CEIL((${f2(L)} * ${fTecido.toString()}) / ${passo.toString()}) * ${passo.toString()} = ${f2(qFita)} ML`;
+      if (pFita) comps.push(componente(pFita, qFita, log));
+    }
 
-  // ---------- Passo B6/B7: terminais e fixação ----------
-  const pTerm = !ehVarao && !pMotor ? obterAuxiliar(catalogo, skus.terminal, alertas, 'O terminal do trilho') : undefined;
-  if (pTerm) {
-    const porVia = metaNum(pTerm, 'qtd_por_via', 2);
-    const qTerm = porVia.mul(vias);
-    comps.push(componente(pTerm, qTerm, `${porVia.toString()} * ${vias.toString()} via(s) = ${qTerm.toString()} UN`));
-  }
-  const pFix = pMotor ? undefined : obterAuxiliar(catalogo, skus.fixacao, alertas, 'A fixação (garras/suportes)');
-  if (pFix) {
-    const fix = ehVarao
-      ? calcularSuportesVarao(L)
-      : calcularGarrasTrilho(L, metaNum(pFix, 'espacamento_m', '0.50'), metaNum(pFix, 'min_un', 2));
-    comps.push(componente(pFix, fix.quantidade, fix.log));
+    // ---------- Passo B6/B7: terminais e fixação ----------
+    const pTerm = !ehVarao && !pMotor ? obterAuxiliar(catalogo, skus.terminal, alertas, 'O terminal do trilho') : undefined;
+    if (pTerm) {
+      const porVia = metaNum(pTerm, 'qtd_por_via', 2);
+      const qTerm = porVia.mul(vias);
+      comps.push(componente(pTerm, qTerm, `${porVia.toString()} * ${vias.toString()} via(s) = ${qTerm.toString()} UN`));
+    }
+    const pFix = pMotor ? undefined : obterAuxiliar(catalogo, skus.fixacao, alertas, 'A fixação (garras/suportes)');
+    if (pFix) {
+      const fix = ehVarao
+        ? calcularSuportesVarao(L)
+        : calcularGarrasTrilho(L, metaNum(pFix, 'espacamento_m', '0.50'), metaNum(pFix, 'min_un', 2));
+      comps.push(componente(pFix, fix.quantidade, fix.log));
+    }
   }
 
   // ---------- Passo B8: instalação (faixas v1.1) ----------
   // Até 3,00 m: SRV-001. Acima: SRV-004 (sem tamanho máximo; 2x o valor de SRV-001).
   const acima3 = L.gt(3);
-  const pInst = obterAuxiliar(catalogo, acima3 ? skus.instalacaoAcima3m : skus.instalacao, alertas,
+  const skuInst = acima3 ? (modelo?.instalacaoAcima3m || skus.instalacaoAcima3m) : (modelo?.instalacao || skus.instalacao);
+  const pInst = obterAuxiliar(catalogo, skuInst, alertas,
     acima3 ? 'A instalação de cortina acima de 3 m' : 'A instalação de cortina');
   if (pInst) comps.push(componente(pInst, new Decimal(1), `1 UN por cortina (trilho ${f2(L)}m ${acima3 ? '> 3,00m' : '<= 3,00m'})`));
   if (acima3) {
@@ -438,11 +516,63 @@ export function calcularCortina(e: EntradaCortina, catalogo: Catalogo): Resultad
     alturaPronta: f2(H),
     numFolhas: N,
     confeccao: e.confeccao,
+    modelo: modelo ? { id: modelo.id, nome: modelo.nome } : undefined,
     trilhoMotorizado: pMotor ? { sku: pMotor.sku, modelo: metaStr(pMotor, 'modelo'), cor: metaStr(pMotor, 'cor'), faixaAteM: faixaMotor?.ate } : undefined,
     trilho: pMotor ? undefined : { sku: trilho?.sku ?? skus.trilho, vias: vias.toNumber(), varao: ehVarao, barras: barras.map((b) => ({ tamanhoM: f2(b.tamanho), quantidade: b.quantidade.toNumber() })) },
     tecido: fichaCorte(pTecido, fTecido, tec),
     forro: forro && e.forro ? fichaCorte(catalogo.obter(e.forro.sku), d(e.forro.fator ?? FATOR_FORRO_PADRAO), forro) : undefined,
   });
+}
+
+/** Acessórios do modelo pronto (regras do Gabriel, 28/11/2026). */
+function acessoriosModelo(modelo: ModeloCortinaItem, c: {
+  L: Decimal; passo: Decimal; fTecido: Decimal; tec: ResultadoTecido; forro?: ResultadoTecido; confeccao: TipoConfeccao;
+  motorizado: boolean; catalogo: Catalogo; alertas: Alerta[]; comps: ComponenteCalculado[];
+}) {
+  const { L, catalogo, alertas, comps } = c;
+  const wave = c.confeccao === 'WAVE';
+  for (const a of modelo.acessorios) {
+    if (a.aplica === 'SECUNDARIO' && !c.forro) continue;
+    // Trilho motorizado já vem com deslizantes, terminais e garras.
+    if (c.motorizado && (a.regra === 'DESLIZANTE' || a.regra === 'TERMINAL' || a.regra === 'GARRA')) continue;
+    if (a.regra === 'ENTRETELA' && (!wave || a.aplica !== 'PRIMARIO')) continue;
+    const p = obterAuxiliar(catalogo, a.sku, alertas, `O acessório ${a.sku} do modelo`);
+    if (!p) continue;
+    const camada = a.aplica === 'SECUNDARIO' ? 'tecido secundário' : a.aplica === 'PRIMARIO' ? 'tecido primário' : 'cortina';
+    let q: { quantidade: Decimal; log: string };
+    switch (a.regra) {
+      case 'DESLIZANTE': {
+        // Secundário é sempre franzido; o primário segue a confecção do modelo.
+        const r = deslizantesModelo(L, a.aplica !== 'SECUNDARIO' && wave);
+        q = { quantidade: r.quantidade, log: `Deslizante do ${camada}. ${r.log}` };
+        break;
+      }
+      case 'ENTRETELA': {
+        const m = ceilStep(L.mul(c.fTecido), c.passo);
+        q = { quantidade: m, log: `Entretela = metros do tecido primário: ${f2(L)} x ${c.fTecido.toString()} = ${f2(m)} ML` };
+        break;
+      }
+      case 'TERMINAL':
+        q = { quantidade: new Decimal(6), log: '6 UN por cortina' };
+        break;
+      case 'GARRA':
+        q = garrasModelo(L);
+        break;
+      case 'ML_TECIDO': {
+        const r = a.aplica === 'SECUNDARIO' ? c.forro! : c.tec;
+        q = { quantidade: r.quantidade, log: `= metros do ${a.aplica === 'SECUNDARIO' ? 'tecido secundário' : 'tecido primário'} (${f2(r.quantidade)} ML)` };
+        break;
+      }
+      case 'ML_TRILHO':
+        q = { quantidade: L, log: `= largura do trilho (${f2(L)} m)` };
+        break;
+      default: {
+        const n = positivo('quantidade do acessório', a.quantidade ?? 1);
+        q = { quantidade: n, log: `${n.toString()} por cortina (fixo no modelo)` };
+      }
+    }
+    comps.push(componente(p, q.quantidade, q.log));
+  }
 }
 
 function fichaCorte(p: Produto, fator: Decimal, r: ResultadoTecido) {

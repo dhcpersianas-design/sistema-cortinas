@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import {
-  Blinds, CalendarDays, ChartColumn, ChevronRight, ClipboardList, DatabaseBackup, Factory, FileText,
+  Blinds, CalendarDays, Layers, ChartColumn, ChevronRight, ClipboardList, DatabaseBackup, Factory, FileText,
   PhoneCall, TriangleAlert, Truck, UserCog, Users, Wallet, Wrench, type LucideIcon,
 } from 'lucide-react';
 import { apiServidor, exigirUsuario } from '@/lib/sessao';
@@ -20,6 +20,7 @@ const MODULOS: Modulo[] = [
   { titulo: 'Instalações', descricao: 'Agenda, OS e aceite do cliente na obra (funciona offline)', permissao: 'pedidos.proprios', href: '/instalacoes', icone: Wrench, grupo: 'Operação' },
   { titulo: 'Pós-venda', descricao: 'Ligar para o cliente depois da instalação e anotar a avaliação', permissao: 'pedidos.proprios', href: '/pos-venda', icone: PhoneCall, grupo: 'Operação' },
   { titulo: 'Catálogo', descricao: 'Produtos, preços e tabela de barras do trilho', permissao: 'catalogo.ver', href: '/catalogo', icone: Blinds, grupo: 'Cadastros' },
+  { titulo: 'Modelos de cortina', descricao: 'Cortinas prontas: tecidos, trilho, acessórios e mão de obra para puxar no orçamento', permissao: 'catalogo.editar', href: '/catalogo/modelos', icone: Layers, grupo: 'Cadastros' },
   { titulo: 'Fornecedores', descricao: 'Fábricas, ateliês e instaladores terceirizados', permissao: 'fornecedores.ver', href: '/fornecedores', icone: Factory, grupo: 'Cadastros' },
   { titulo: 'Financeiro', descricao: 'Contas a receber e a pagar, taxas do cartão, DAS e limite do MEI', permissao: 'financeiro.gerenciar', href: '/financeiro', icone: Wallet, grupo: 'Gestão' },
   { titulo: 'Relatórios', descricao: 'DRE, faturamento, lucro por pedido, fluxo de caixa e mais (PDF e Excel)', permissao: 'relatorios.ver', href: '/relatorios', icone: ChartColumn, grupo: 'Gestão' },

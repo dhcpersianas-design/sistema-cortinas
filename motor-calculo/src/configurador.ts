@@ -7,6 +7,7 @@
  *    taxa de pagamento, imposto e comissão -> margem LÍQUIDA e semáforo 45/35.
  *  - descricaoComercial: o texto limpo que vai para o PDF do cliente.
  */
+import { nomeBaseTecido } from './cadastro.js';
 import { alertasDisponibilidade } from './disponibilidade.js';
 import { Decimal, d, dinheiro, ErroEntrada, ZERO, type Numerico } from './decimal.js';
 import { componente, margemPct } from './comum.js';
@@ -180,9 +181,11 @@ export function descricaoComercial(item: EntradaItem, catalogo: Catalogo): strin
   if (item.tipo === 'CORTINA') {
     const e = item.entrada;
     const conf = { WAVE: 'Wave', PREGA: 'Prega macho', FRANZIDO: 'Franzida' }[e.confeccao] ?? e.confeccao;
-    const forro = e.forro ? ` c/ forro ${catalogo.obter(e.forro.sku).nome}` : '';
-    if (e.trilhoMotorizado) return `Cortina ${conf} motorizada em ${catalogo.obter(e.tecido.sku).nome}${forro} (${br(e.larguraTrilho)} m x ${br(e.alturaPronta)} m)`;
-    return `Cortina ${conf} em ${catalogo.obter(e.tecido.sku).nome}${forro} (${br(e.larguraTrilho)} m x ${br(e.alturaPronta)} m)`;
+    // Para o cliente, sem a largura do rolo que fica no fim do nome do tecido (" - 3,00 MT").
+    const forro = e.forro ? ` c/ forro ${nomeBaseTecido(catalogo.obter(e.forro.sku).nome)}` : '';
+    const tecido = nomeBaseTecido(catalogo.obter(e.tecido.sku).nome);
+    if (e.trilhoMotorizado) return `Cortina ${conf} motorizada em ${tecido}${forro} (${br(e.larguraTrilho)} m x ${br(e.alturaPronta)} m)`;
+    return `Cortina ${conf} em ${tecido}${forro} (${br(e.larguraTrilho)} m x ${br(e.alturaPronta)} m)`;
   }
   if (item.tipo === 'SERVICO') {
     const t = item.entrada.descricao?.trim();
@@ -314,7 +317,8 @@ export function totalizarOrcamento(
     subtotal, descontoValor, descontoPct, acrescimo, total, custoTotal,
     lucroBruto, margemBrutaPct: margemPct(lucroBruto, total),
     taxaPagamento, imposto, comissao, lucroLiquido, margemLiquidaPct,
-    semaforo: semaforoMargem(margemLiquidaPct, p.limites ?? LIMITES_SEMAFORO_PADRAO).cor,
+    // Orçamento sem itens (recém-aberto) não tem margem para avaliar: nada de vermelho nem liberação.
+    semaforo: subtotal.isZero() && total.isZero() ? 'VERDE' : semaforoMargem(margemLiquidaPct, p.limites ?? LIMITES_SEMAFORO_PADRAO).cor,
   };
 }
 
@@ -405,14 +409,17 @@ export function garantiaMesesProduto(p: Pick<Produto, 'nome' | 'metadata' | 'cat
 }
 
 export interface GarantiaItem {
-  /** Garantia do produto principal do item (primeiro componente: tecido ou persiana). */
-  meses: number;
+  /**
+   * Garantia do produto principal do item (primeiro componente: persiana). Cortina não tem
+   * garantia (Gabriel, 28/11/2026): null. Só o motor da cortina motorizada mantém a dele.
+   */
+  meses: number | null;
   /** Garantia do motor, quando o item é motorizado. */
   motorMeses: number | null;
 }
 
-export function garantiaDoItem(skus: string[], catalogo: Catalogo): GarantiaItem {
-  let meses = 12;
+export function garantiaDoItem(skus: string[], catalogo: Catalogo, tipo?: string): GarantiaItem {
+  let meses: number | null = tipo === 'CORTINA' ? null : 12;
   let motorMeses: number | null = null;
   skus.forEach((sku, i) => {
     let p: Produto;
@@ -420,13 +427,14 @@ export function garantiaDoItem(skus: string[], catalogo: Catalogo): GarantiaItem
     const g = garantiaMesesProduto(p);
     const ehMotor = /motor/i.test(p.nome) || p.metadata?.['torque_nm'] !== undefined;
     if (ehMotor) motorMeses = Math.max(motorMeses ?? 0, g);
-    else if (i === 0) meses = g;
+    else if (i === 0 && tipo !== 'CORTINA') meses = g;
   });
   return { meses, motorMeses };
 }
 
 export function textoGarantia(g: GarantiaItem): string {
   const t = (m: number) => (m >= 24 && m % 12 === 0 ? `${m / 12} anos` : `${m} meses`);
+  if (g.meses == null) return g.motorMeses ? `Motor ${t(g.motorMeses)}` : '';
   return g.motorMeses ? `${t(g.meses)}; motor ${t(g.motorMeses)}` : t(g.meses);
 }
 
